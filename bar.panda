@@ -1,0 +1,2 @@
+def ancestor(x, y):
+	parent(x, y)

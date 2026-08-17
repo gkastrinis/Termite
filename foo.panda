@@ -1,0 +1,21 @@
+// concept Person
+
+// decl Person.name(String) property/relationship equiv-class
+
+// decl ancestor(from:Person, to:Person)
+
+def ancestor(x, y):
+	parent(x, y)
+
+def ancestor(x, y), grandparent(x, z, y):
+	ancestor(x, z) and
+	parent (z, y)
+
+def ancestor(x, y):
+	case:
+		parent(x, y)
+	case:
+		ancestor(x, z),
+		parent (z, y)
+
+def ancestor(to=y, from=x): ...
