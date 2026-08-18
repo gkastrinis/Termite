@@ -8,14 +8,18 @@ def ancestor(x, y):
 	parent(x, y)
 
 def ancestor(x, y), grandparent(x, z, y):
-	ancestor(x, z) and
+	ancestor(x, z),
 	parent (z, y)
 
-def ancestor(x, y):
+def ancestor2(x, y):
 	case:
 		parent(x, y)
 	case:
-		ancestor(x, z),
+		ancestor2(x, z),
 		parent (z, y)
 
-def ancestor(to=y, from=x): ...
+// def ancestor(to=y, from=x): ...
+
+def var_point_to(from, to): _MOVE(from, to)
+
+def parent("George K", "Ste\"ve"): true
