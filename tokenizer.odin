@@ -3,6 +3,7 @@ package termite
 import "core:fmt"
 import "core:os"
 import "core:io"
+import "core:unicode/utf8"
 
 is_white :: proc(r: rune) -> bool {
     return r == ' ' || r == '\t' || r == '\t' || r == '\n'
@@ -16,7 +17,7 @@ is_letter :: proc(r: rune) -> bool {
     return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
-Token :: enum {
+Kind :: enum {
     K_DEF,
 
     OP_LPAREN,
@@ -47,7 +48,9 @@ is_idlike :: proc(s: State) -> bool {
 
 main :: proc() {
     s := State.CLEAN
-    curr_id : [dynamic]rune
+    curr_id: [dynamic]rune
+    tokens: [dynamic]Kind
+    values: [dynamic]string
 
     stdin := os.to_stream(os.stdin)
     for {
@@ -64,7 +67,7 @@ main :: proc() {
         }
 
 
-        fmt.println(r, " -- ", s)
+        // fmt.println(r, " -- ", s)
 
         if is_idlike(s) {
             if s == State.D {
@@ -82,12 +85,13 @@ main :: proc() {
 
         if is_sep(r) {
             if s == State.DEF {
-                fmt.println("\x1b[32mK_DEF\x1b[0m")
+                append(&tokens, Kind.K_DEF)
                 clear(&curr_id)
                 s = State.CLEAN
             } else if is_idlike(s) {
-                fmt.println("\x1b[32mID\x1b[0m")
-                fmt.println("\x1b[32m", curr_id, "\x1b[0m")
+                append(&tokens, Kind.ID)
+                str, _ := utf8.runes_to_string(curr_id[:])
+                append(&values, str)
                 clear(&curr_id)
                 s = State.CLEAN
             }
@@ -98,17 +102,17 @@ main :: proc() {
                 s = State.COMMENT_START
                 continue
             } else if r == '(' {
-                fmt.println("\x1b[32mOP_LPAREN\x1b[0m")
+                append(&tokens, Kind.OP_LPAREN)
             } else if r == ')' {
-                fmt.println("\x1b[32mOP_RPAREN\x1b[0m")
+                append(&tokens, Kind.OP_RPAREN)
             } else if r == ':' {
-                fmt.println("\x1b[32mOP_COLON\x1b[0m")
+                append(&tokens, Kind.OP_COLON)
             } else if r == ',' {
-                fmt.println("\x1b[32mOP_COMMA\x1b[0m")
+                append(&tokens, Kind.OP_COMMA)
             } else if r == '.' {
-                fmt.println("\x1b[32mOP_DOT\x1b[0m")
+                append(&tokens, Kind.OP_DOT)
             } else if r == '=' {
-                fmt.println("\x1b[32mOP_EQ\x1b[0m")
+                append(&tokens, Kind.OP_EQ)
             } else if r == 'd' {
                 s = State.D
                 append(&curr_id, 'd')
@@ -118,6 +122,15 @@ main :: proc() {
             }
         } else if s == State.ID {
             append(&curr_id, r)
+        }
+    }
+
+    val_idx := 0
+    for t in tokens {
+        fmt.print("\x1b[32m", t, "\x1b[0m,")
+        if t == Kind.ID {
+            fmt.print("\x1b[31m", values[val_idx], "\x1b[0m,")
+            val_idx += 1
         }
     }
 }
