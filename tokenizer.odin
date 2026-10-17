@@ -1,8 +1,6 @@
 package termite
 
 import "core:fmt"
-import "core:os"
-import "core:io"
 import "core:bufio"
 import "core:unicode/utf8"
 
@@ -214,7 +212,6 @@ tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
             break
         }
         r, _, _ := bufio.reader_read_rune(&tok.reader)
-        // r, _, err := io.read_rune(tok.stream)
         // fmt.println(tok.s, tok.kind, "!!!", tok.buffer, r)
 
         if tok.s == State.CLEAN { tokenizer_on_clean(tok, r) }
@@ -240,26 +237,4 @@ tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
     k := tok.kind
     tok.kind = Kind.UNDEF
     return Token{k, tokenizer_val_from_buffer(tok)}
-}
-
-
-
-main :: proc() {
-    stream := os.to_stream(os.stdin)
-    reader: bufio.Reader
-    bufio.reader_init(&reader, stream)
-    defer bufio.reader_destroy(&reader)
-    tok := Tokenizer{reader=reader, s=State.CLEAN, kind=Kind.UNDEF}
-
-    for {
-        t := tokenizer_next_token(&tok)
-        if t.kind == Kind.EOF {
-            fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
-            break
-        } else if t.kind == Kind.STRING {
-            fmt.printf("\"%v\"\x1b[0m \x1b[34m<%v> \x1b[0m", t.val, t.kind)
-        } else {
-            fmt.printf("%v\x1b[0m \x1b[34m<%v> \x1b[0m", t.val, t.kind)
-        }
-    }
 }
