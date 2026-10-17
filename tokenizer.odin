@@ -3,23 +3,8 @@ package termite
 import "core:fmt"
 import "core:os"
 import "core:io"
+import "core:bufio"
 import "core:unicode/utf8"
-
-is_white :: proc(r: rune) -> bool {
-    return r == ' ' || r == '\t' || r == '\t' || r == '\n'
-}
-
-is_boundary :: proc(r: rune) -> bool {
-    return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' || r == '.' || r == '=' || is_white(r)
-}
-
-is_id_start :: proc(r: rune) -> bool {
-    return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
-}
-
-is_num :: proc(r: rune) -> bool {
-    return r >= '0' && r <= '9'
-}
 
 Kind :: enum {
     K_TRUE,
@@ -37,6 +22,10 @@ Kind :: enum {
 
     ID,
     STRING,
+
+    UNDEF,
+    ERROR,
+    EOF,
 }
 
 State :: enum {
@@ -55,11 +44,33 @@ State :: enum {
     ERROR,
 }
 
-Ctx :: struct {
+Tokenizer :: struct {
+    reader: bufio.Reader,
     s: State,
-    curr_id: [dynamic]rune,
-    tokens: [dynamic]Kind,
-    values: [dynamic]string,
+
+    kind: Kind,
+    buffer: [dynamic]rune,
+}
+
+Token :: struct {
+    kind: Kind,
+    val: string
+}
+
+is_white :: proc(r: rune) -> bool {
+    return r == ' ' || r == '\t' || r == '\t' || r == '\n'
+}
+
+is_boundary :: proc(r: rune) -> bool {
+    return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' || r == '.' || r == '=' || is_white(r)
+}
+
+is_id_start :: proc(r: rune) -> bool {
+    return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
+}
+
+is_num :: proc(r: rune) -> bool {
+    return r >= '0' && r <= '9'
 }
 
 is_id_like :: proc(s: State) -> bool {
@@ -69,166 +80,186 @@ is_id_like :: proc(s: State) -> bool {
         s == State.ID
 }
 
-fail :: proc(s: State, r: rune) {
-    fmt.println("\x1b[31mERROR\x1b[0m ", r)
+// fail :: proc(s: State, r: rune) {
+//     fmt.println("\x1b[31mERROR\x1b[0m ", r)
+// }
+
+
+tokenizer_add_to_buffer :: proc(tok: ^Tokenizer, new_state: State, r: rune) {
+    tok.s = new_state
+    append(&tok.buffer, r)
 }
 
-
-add_to_id :: proc(ctx: ^Ctx, new_state: State, r: rune) {
-    ctx.s = new_state
-    append(&ctx.curr_id, r)
+tokenizer_val_from_buffer :: proc(tok: ^Tokenizer) -> string {
+    if len(tok.buffer) == 0 { return "" }
+    str, _ := utf8.runes_to_string(tok.buffer[:])
+    clear(&tok.buffer)
+    return str
 }
 
-
-on_clean :: proc(ctx: ^Ctx, r: rune) {
-    fmt.println("on_clean: ", r)
+tokenizer_on_clean :: proc(tok: ^Tokenizer, r: rune) {
+    // fmt.println("tokenizer_on_clean: ", r)
 
     if is_white(r) {}
     else if r == '/' {
-        ctx.s = State.COMMENT_START
+        tok.s = State.COMMENT_START
     } else if r == 'd' {
-        add_to_id(ctx, State.D, r)
+        tokenizer_add_to_buffer(tok, State.D, r)
     } else if r == 't' {
-        add_to_id(ctx, State.T, r)
+        tokenizer_add_to_buffer(tok, State.T, r)
     } else if r == 'f' {
-        add_to_id(ctx, State.F, r)
+        tokenizer_add_to_buffer(tok, State.F, r)
     } else if is_id_start(r) {
-        clear(&ctx.curr_id)
-        add_to_id(ctx, State.ID, r)
+        assert( len(tok.buffer) == 0 )
+        tokenizer_add_to_buffer(tok, State.ID, r)
 
     } else if r == '"' {
-        ctx.s = State.STRING
+        tok.s = State.STRING
     }
 }
 
-on_id_like :: proc(ctx: ^Ctx, r: rune) {
-    fmt.println("on_id_like: ", r)
+tokenizer_on_id_like :: proc(tok: ^Tokenizer, r: rune) {
+    // fmt.println("tokenizer_on_id_like: ", r)
 
-    if ctx.s == State.D && r == 'e' {
-        add_to_id(ctx, State.DE, r)
-    } else if ctx.s == State.DE && r == 'f' {
-        add_to_id(ctx, State.DEF, r)
-    } else if ctx.s == State.DEF && is_boundary(r) {
-        append(&ctx.tokens, Kind.K_DEF)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
+    if tok.s == State.D && r == 'e' {
+        tokenizer_add_to_buffer(tok, State.DE, r)
+    } else if tok.s == State.DE && r == 'f' {
+        tokenizer_add_to_buffer(tok, State.DEF, r)
+    } else if tok.s == State.DEF && is_boundary(r) {
+        tok.kind = Kind.K_DEF
+        tok.s = State.CLEAN
 
-    } else if ctx.s == State.DE && r == 'c' {
-        add_to_id(ctx, State.DEC, r)
-    } else if ctx.s == State.DEC && r == 'l' {
-        add_to_id(ctx, State.DECL, r)
-    } else if ctx.s == State.DECL && is_boundary(r) {
-        append(&ctx.tokens, Kind.K_DECL)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
+    } else if tok.s == State.DE && r == 'c' {
+        tokenizer_add_to_buffer(tok, State.DEC, r)
+    } else if tok.s == State.DEC && r == 'l' {
+        tokenizer_add_to_buffer(tok, State.DECL, r)
+    } else if tok.s == State.DECL && is_boundary(r) {
+        tok.kind = Kind.K_DECL
+        tok.s = State.CLEAN
 
-    } else if ctx.s == State.T && r == 'r' {
-        add_to_id(ctx, State.TR, r)
-    } else if ctx.s == State.TR && r == 'u' {
-        add_to_id(ctx, State.TRU, r)
-    } else if ctx.s == State.TRU && r == 'e' {
-        add_to_id(ctx, State.TRUE, r)
-    } else if ctx.s == State.TRUE && is_boundary(r) {
-        append(&ctx.tokens, Kind.K_TRUE)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
+    } else if tok.s == State.T && r == 'r' {
+        tokenizer_add_to_buffer(tok, State.TR, r)
+    } else if tok.s == State.TR && r == 'u' {
+        tokenizer_add_to_buffer(tok, State.TRU, r)
+    } else if tok.s == State.TRU && r == 'e' {
+        tokenizer_add_to_buffer(tok, State.TRUE, r)
+    } else if tok.s == State.TRUE && is_boundary(r) {
+        tok.kind = Kind.K_TRUE
+        tok.s = State.CLEAN
 
-    } else if ctx.s == State.F && r == 'a' {
-        add_to_id(ctx, State.FA, r)
-    } else if ctx.s == State.FA && r == 'l' {
-        add_to_id(ctx, State.FAL, r)
-    } else if ctx.s == State.FAL && r == 's' {
-        add_to_id(ctx, State.FALS, r)
-    } else if ctx.s == State.FALS && r == 'e' {
-        add_to_id(ctx, State.FALSE, r)
-    } else if ctx.s == State.FALSE && is_boundary(r) {
-        append(&ctx.tokens, Kind.K_FALSE)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
+    } else if tok.s == State.F && r == 'a' {
+        tokenizer_add_to_buffer(tok, State.FA, r)
+    } else if tok.s == State.FA && r == 'l' {
+        tokenizer_add_to_buffer(tok, State.FAL, r)
+    } else if tok.s == State.FAL && r == 's' {
+        tokenizer_add_to_buffer(tok, State.FALS, r)
+    } else if tok.s == State.FALS && r == 'e' {
+        tokenizer_add_to_buffer(tok, State.FALSE, r)
+    } else if tok.s == State.FALSE && is_boundary(r) {
+        tok.kind = Kind.K_FALSE
+        tok.s = State.CLEAN
 
     } else if is_id_start(r) || is_num(r) {
-        append(&ctx.curr_id, r)
+        append(&tok.buffer, r)
     } else if is_boundary(r) {
-        append(&ctx.tokens, Kind.ID)
-        str, _ := utf8.runes_to_string(ctx.curr_id[:])
-        append(&ctx.values, str)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
+        tok.kind = Kind.ID
+        tok.s = State.CLEAN
     }
 }
 
-on_comment_start :: proc(ctx: ^Ctx, r: rune) {
-    fmt.println("on_comment_start: ", r)
+tokenizer_on_comment_start :: proc(tok: ^Tokenizer, r: rune) {
+    // fmt.println("tokenizer_on_comment_start: ", r)
 
     if r == '/' {
-        ctx.s = State.COMMENT
+        tok.s = State.COMMENT
     }
 }
 
-on_string :: proc(ctx: ^Ctx, r: rune) {
+tokenizer_on_string :: proc(tok: ^Tokenizer, r: rune) {
     if r == '"' {
-        append(&ctx.tokens, Kind.STRING)
-        str, _ := utf8.runes_to_string(ctx.curr_id[:])
-        append(&ctx.values, str)
-        clear(&ctx.curr_id)
-        ctx.s = State.CLEAN
-        return
+        tok.kind = Kind.STRING
+        tok.s = State.CLEAN
     } else if r == '\\' {
-        add_to_id(ctx, State.STRING_ESC, r)
+        tokenizer_add_to_buffer(tok, State.STRING_ESC, r)
     } else {
-        add_to_id(ctx, State.STRING, r)
+        tokenizer_add_to_buffer(tok, State.STRING, r)
     }
 }
 
-on_boundary :: proc(ctx: ^Ctx, r: rune) {
+tokenizer_on_boundary :: proc(tok: ^Tokenizer, r: rune) {
     if r == '(' {
-        append(&ctx.tokens, Kind.OP_LPAREN)
+        tok.kind = Kind.OP_LPAREN
     } else if r == ')' {
-        append(&ctx.tokens, Kind.OP_RPAREN)
+        tok.kind = Kind.OP_RPAREN
     } else if r == ':' {
-        append(&ctx.tokens, Kind.OP_COLON)
+        tok.kind = Kind.OP_COLON
     } else if r == ',' {
-        append(&ctx.tokens, Kind.OP_COMMA)
+        tok.kind = Kind.OP_COMMA
     } else if r == ';' {
-        append(&ctx.tokens, Kind.OP_SEMICOLON)
+        tok.kind = Kind.OP_SEMICOLON
     } else if r == '.' {
-        append(&ctx.tokens, Kind.OP_DOT)
+        tok.kind = Kind.OP_DOT
     } else if r == '=' {
-        append(&ctx.tokens, Kind.OP_EQ)
+        tok.kind = Kind.OP_EQ
     }
+    tokenizer_add_to_buffer(tok, tok.s, r)
 }
+
+tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
+    assert( tok.s == State.CLEAN )
+    for {
+        bytes, err := bufio.reader_peek(&tok.reader, 1)
+        if err != nil {
+            tok.kind = Kind.EOF
+            break
+        }
+        r, _, _ := bufio.reader_read_rune(&tok.reader)
+        // r, _, err := io.read_rune(tok.stream)
+        // fmt.println(tok.s, tok.kind, "!!!", tok.buffer, r)
+
+        if tok.s == State.CLEAN { tokenizer_on_clean(tok, r) }
+        else if is_id_like(tok.s) { tokenizer_on_id_like(tok, r) }
+        else if tok.s == State.COMMENT_START { tokenizer_on_comment_start(tok, r) }
+        else if tok.s == State.COMMENT {
+            if r == '\n' { tok.s = State.CLEAN }
+            else { continue }
+        }
+        else if tok.s == State.STRING { tokenizer_on_string(tok, r) }
+        else if tok.s == State.STRING_ESC { tokenizer_add_to_buffer(tok, State.STRING, r) }
+
+        if is_boundary(r) && !is_white(r) {
+            if tok.kind != Kind.UNDEF {
+                bufio.reader_unread_rune(&tok.reader)
+                break
+            }
+            tokenizer_on_boundary(tok, r)
+        }
+
+        if tok.kind != Kind.UNDEF { break }
+    }
+    k := tok.kind
+    tok.kind = Kind.UNDEF
+    return Token{k, tokenizer_val_from_buffer(tok)}
+}
+
 
 
 main :: proc() {
-    ctx := Ctx{s = State.CLEAN}
+    stream := os.to_stream(os.stdin)
+    reader: bufio.Reader
+    bufio.reader_init(&reader, stream)
+    defer bufio.reader_destroy(&reader)
+    tok := Tokenizer{reader=reader, s=State.CLEAN, kind=Kind.UNDEF}
 
-    stdin := os.to_stream(os.stdin)
     for {
-        r, _, err := io.read_rune(stdin)
-        if err != nil { break }
-
-
-        if ctx.s == State.CLEAN { on_clean(&ctx, r) }
-        else if is_id_like(ctx.s) { on_id_like(&ctx, r) }
-        else if ctx.s == State.COMMENT_START { on_comment_start(&ctx, r) }
-        else if ctx.s == State.COMMENT {
-            if r == '\n' { ctx.s = State.CLEAN }
-            else { continue }
-        }
-        else if ctx.s == State.STRING { on_string(&ctx, r) }
-        else if ctx.s == State.STRING_ESC { add_to_id(&ctx, State.STRING, r) }
-
-        if is_boundary(r) { on_boundary(&ctx, r) }
-
-    }
-
-    val_idx := 0
-    for t in ctx.tokens {
-        if t == Kind.ID || t == Kind.STRING {
-            fmt.print(" (\x1b[32m", t, "\x1b[0m, \x1b[34m", ctx.values[val_idx], "\x1b[0m ),")
-            val_idx += 1
+        t := tokenizer_next_token(&tok)
+        if t.kind == Kind.EOF {
+            fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
+            break
+        } else if t.kind == Kind.STRING {
+            fmt.printf("\"%v\"\x1b[0m \x1b[34m<%v> \x1b[0m", t.val, t.kind)
         } else {
-            fmt.print("\x1b[32m", t, "\x1b[0m,")
+            fmt.printf("%v\x1b[0m \x1b[34m<%v> \x1b[0m", t.val, t.kind)
         }
     }
 }

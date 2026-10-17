@@ -1,5 +1,0 @@
-// rec Var(v:Str, ctx:Str)
-// decl ancestor(from:Person, to:Person)
-// property relationship equiv-class
-
-decl parent(person:Str, child:Str)
