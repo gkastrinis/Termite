@@ -5,11 +5,7 @@ import "core:os"
 import "core:bufio"
 
 main :: proc() {
-    stream := os.to_stream(os.stdin)
-    reader: bufio.Reader
-    bufio.reader_init(&reader, stream)
-    defer bufio.reader_destroy(&reader)
-    tok := Tokenizer{reader=reader, s=State.CLEAN, kind=Kind.UNDEF}
+    tok := Tokenizer{stream=os.to_stream(os.stdin), s=State.CLEAN, kind=Kind.UNDEF}
 
     for {
         t := tokenizer_next_token(&tok)

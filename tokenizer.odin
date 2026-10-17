@@ -1,14 +1,11 @@
 package termite
 
 import "core:fmt"
-import "core:bufio"
+import "core:io"
 import "core:unicode/utf8"
 
 Kind :: enum {
-    K_TRUE,
-    K_FALSE,
-    K_DEF,
-    K_DECL,
+    K_TRUE, K_FALSE, K_DEF, K_DECL,
 
     OP_LPAREN,
     OP_RPAREN,
@@ -17,6 +14,7 @@ Kind :: enum {
     OP_SEMICOLON,
     OP_DOT,
     OP_EQ,
+    OP_DIV,
 
     ID,
     STRING,
@@ -29,30 +27,50 @@ Kind :: enum {
 State :: enum {
     CLEAN,
 
-    COMMENT_START,
-    COMMENT,
-    STRING,
-    STRING_ESC,
-
     D, DE, DEF, DEC, DECL,
     T, TR, TRU, TRUE,
     F, FA, FAL, FALS, FALSE,
     ID,
+    STRING,
 
+    COMMENT,
     ERROR,
 }
 
 Tokenizer :: struct {
-    reader: bufio.Reader,
+    stream: io.Stream,
+    ahead1: rune,
+    ahead2: rune,
+
     s: State,
 
     kind: Kind,
     buffer: [dynamic]rune,
 }
 
-Token :: struct {
-    kind: Kind,
-    val: string
+read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
+    if tok.ahead2 != '\x00' {
+        r := tok.ahead2
+        tok.ahead2 = '\x00'
+        return r, nil
+    } else if tok.ahead1 != '\x00' {
+        r := tok.ahead1
+        tok.ahead1 = '\x00'
+        return r, nil
+    } else {
+        r, _, err := io.read_rune(tok.stream)
+        return r, err
+    }
+}
+
+unread_rune :: proc(tok: ^Tokenizer, r: rune) {
+    if tok.ahead1 == '\x00' {
+        tok.ahead1 = r
+    } else if tok.ahead2 == '\x00' {
+        tok.ahead2 = r
+    } else {
+        assert(false)
+    }
 }
 
 is_white :: proc(r: rune) -> bool {
@@ -78,11 +96,6 @@ is_id_like :: proc(s: State) -> bool {
         s == State.ID
 }
 
-// fail :: proc(s: State, r: rune) {
-//     fmt.println("\x1b[31mERROR\x1b[0m ", r)
-// }
-
-
 tokenizer_add_to_buffer :: proc(tok: ^Tokenizer, new_state: State, r: rune) {
     tok.s = new_state
     append(&tok.buffer, r)
@@ -96,11 +109,17 @@ tokenizer_val_from_buffer :: proc(tok: ^Tokenizer) -> string {
 }
 
 tokenizer_on_clean :: proc(tok: ^Tokenizer, r: rune) {
-    // fmt.println("tokenizer_on_clean: ", r)
-
-    if is_white(r) {}
-    else if r == '/' {
-        tok.s = State.COMMENT_START
+    if is_white(r) {
+        // just consume it
+    } else if r == '/' {
+        ahead, err := read_rune(tok)
+        if err == nil && ahead == '/' {
+            tok.s = State.COMMENT
+        } else {
+            unread_rune(tok, ahead)
+            tok.kind = Kind.OP_DIV
+            tokenizer_add_to_buffer(tok, State.ID, r)
+        }
     } else if r == 'd' {
         tokenizer_add_to_buffer(tok, State.D, r)
     } else if r == 't' {
@@ -110,15 +129,12 @@ tokenizer_on_clean :: proc(tok: ^Tokenizer, r: rune) {
     } else if is_id_start(r) {
         assert( len(tok.buffer) == 0 )
         tokenizer_add_to_buffer(tok, State.ID, r)
-
     } else if r == '"' {
         tok.s = State.STRING
     }
 }
 
 tokenizer_on_id_like :: proc(tok: ^Tokenizer, r: rune) {
-    // fmt.println("tokenizer_on_id_like: ", r)
-
     if tok.s == State.D && r == 'e' {
         tokenizer_add_to_buffer(tok, State.DE, r)
     } else if tok.s == State.DE && r == 'f' {
@@ -165,22 +181,31 @@ tokenizer_on_id_like :: proc(tok: ^Tokenizer, r: rune) {
     }
 }
 
-tokenizer_on_comment_start :: proc(tok: ^Tokenizer, r: rune) {
-    // fmt.println("tokenizer_on_comment_start: ", r)
-
-    if r == '/' {
-        tok.s = State.COMMENT
+tokenizer_on_comment :: proc(tok: ^Tokenizer, r: rune) {
+    rr := r
+    for {
+        if rr == '\n' {
+            tok.s = State.CLEAN
+            return
+        }
+        rr, _ = read_rune(tok)
     }
 }
 
 tokenizer_on_string :: proc(tok: ^Tokenizer, r: rune) {
-    if r == '"' {
-        tok.kind = Kind.STRING
-        tok.s = State.CLEAN
-    } else if r == '\\' {
-        tokenizer_add_to_buffer(tok, State.STRING_ESC, r)
-    } else {
-        tokenizer_add_to_buffer(tok, State.STRING, r)
+    rr := r
+    err: io.Error
+    for {
+        if rr == '"' {
+            tok.kind = Kind.STRING
+            tok.s = State.CLEAN
+            return
+        } else if rr == '\\' {
+            tokenizer_add_to_buffer(tok, tok.s, rr)
+            rr, err = read_rune(tok)
+        }
+        tokenizer_add_to_buffer(tok, tok.s, rr)
+        rr, _ = read_rune(tok)
     }
 }
 
@@ -203,30 +228,29 @@ tokenizer_on_boundary :: proc(tok: ^Tokenizer, r: rune) {
     tokenizer_add_to_buffer(tok, tok.s, r)
 }
 
+
+Token :: struct {
+    kind: Kind,
+    val: string
+}
+
 tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
     assert( tok.s == State.CLEAN )
     for {
-        bytes, err := bufio.reader_peek(&tok.reader, 1)
+        r, err := read_rune(tok)
         if err != nil {
             tok.kind = Kind.EOF
             break
         }
-        r, _, _ := bufio.reader_read_rune(&tok.reader)
-        // fmt.println(tok.s, tok.kind, "!!!", tok.buffer, r)
 
         if tok.s == State.CLEAN { tokenizer_on_clean(tok, r) }
         else if is_id_like(tok.s) { tokenizer_on_id_like(tok, r) }
-        else if tok.s == State.COMMENT_START { tokenizer_on_comment_start(tok, r) }
-        else if tok.s == State.COMMENT {
-            if r == '\n' { tok.s = State.CLEAN }
-            else { continue }
-        }
+        else if tok.s == State.COMMENT { tokenizer_on_comment(tok, r) }
         else if tok.s == State.STRING { tokenizer_on_string(tok, r) }
-        else if tok.s == State.STRING_ESC { tokenizer_add_to_buffer(tok, State.STRING, r) }
 
         if is_boundary(r) && !is_white(r) {
             if tok.kind != Kind.UNDEF {
-                bufio.reader_unread_rune(&tok.reader)
+                unread_rune(tok, r)
                 break
             }
             tokenizer_on_boundary(tok, r)
