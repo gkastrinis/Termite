@@ -1,25 +1,37 @@
-// concept Person
-
-// decl Person.name(String) property/relationship equiv-class
-
+// rec Var(v:Str, ctx:Str)
 // decl ancestor(from:Person, to:Person)
+// property/relationship equiv-class
+
+decl parent(person:Str, child:Str)
 
 def ancestor(x, y):
-	parent(x, y)
+    parent(x, y)
 
 def ancestor(x, y), grandparent(x, z, y):
-	ancestor(x, z),
-	parent (z, y)
-
-def ancestor2(x, y):
-	case:
-		parent(x, y)
-	case:
-		ancestor2(x, z),
-		parent (z, y)
+    ancestor(x, z),
+    parent (z, y)
 
 // def ancestor(to=y, from=x): ...
 
+//type Var(name:Str)
+//decl Var.type(t:Str)
+
+
 def var_point_to(from, to): _MOVE(from, to)
 
-def parent("George K", "Ste\"ve"): true
+def parent("Alice B", "Bo\"b C"): true
+
+//def foo (x, y): {(1, 2), (2, 3)}
+
+// foo = (x, y): {(1, 2), (2, 3)}
+// ancestor = (x, y): parent(x, y)
+
+//def ancestor2 {
+//    {(x, y): parent(x, y)},
+//    {(x, z): ancestor2(x, y), parent(y, z)}
+//}
+
+//(x, y) : ancestor(x, z), parent(z, y)
+//(x, y) : {(1, 2); (2, 3)}
+//(x, y) : [(1, 2), (2, 3)]
+//((x, y), (x, z, y)) : ancestor(x, z), parent(z, y)
