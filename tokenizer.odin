@@ -4,53 +4,27 @@ import "core:fmt"
 import "core:io"
 import "core:unicode/utf8"
 
-Kind :: enum {
-    K_TRUE, K_FALSE, K_DEF, K_DECL,
-
-    OP_LPAREN,
-    OP_RPAREN,
-    OP_COLON,
-    OP_COMMA,
-    OP_SEMICOLON,
-    OP_DOT,
-    OP_EQ,
-    OP_DIV,
-
-    ID,
-    STRING,
-    INT,
-
-    ERROR,
-    EOF,
-}
-
-State :: enum {
-    CLEAN,
-
-    D, DE, DEF, DEC, DECL,
-    T, TR, TRU, TRUE,
-    F, FA, FAL, FALS, FALSE,
-    ID,
-
-    ERROR,
-}
-
+@(private)
 is_white :: proc(r: rune) -> bool {
     return r == ' ' || r == '\t' || r == '\t' || r == '\n'
 }
 
+@(private)
 is_boundary :: proc(r: rune) -> bool {
     return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' || r == '.' || r == '=' || is_white(r)
 }
 
+@(private)
 is_id_start :: proc(r: rune) -> bool {
     return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
 }
 
+@(private)
 is_num :: proc(r: rune) -> bool {
     return r >= '0' && r <= '9'
 }
 
+@(private)
 is_id_like :: proc(s: State) -> bool {
     return s == State.D || s == State.DE || s == State.DEF || s == State.DEC || s == State.DECL ||
         s == State.T || s == State.TR || s == State.TRU || s == State.TRUE ||
@@ -58,17 +32,7 @@ is_id_like :: proc(s: State) -> bool {
         s == State.ID
 }
 
-Tokenizer :: struct {
-    stream: io.Stream,
-    ahead1: rune,
-    ahead2: rune,
-
-    s: State,
-
-    kind: Kind,
-    buffer: [dynamic]rune,
-}
-
+@(private)
 read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
     if tok.ahead2 != '\x00' {
         r := tok.ahead2
@@ -84,6 +48,7 @@ read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
     }
 }
 
+@(private)
 unread_rune :: proc(tok: ^Tokenizer, r: rune) {
     if tok.ahead1 == '\x00' {
         tok.ahead1 = r
@@ -94,11 +59,13 @@ unread_rune :: proc(tok: ^Tokenizer, r: rune) {
     }
 }
 
+@(private)
 tokenizer_to_new_state :: proc(tok: ^Tokenizer, new_state: State, r: rune) {
     tok.s = new_state
     append(&tok.buffer, r)
 }
 
+@(private)
 tokenizer_on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
     rr := r
     for {
@@ -166,6 +133,7 @@ tokenizer_on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
     return
 }
 
+@(private)
 tokenizer_on_int :: proc(tok: ^Tokenizer, r: rune) {
     append(&tok.buffer, r)
     for {
@@ -187,6 +155,7 @@ tokenizer_on_int :: proc(tok: ^Tokenizer, r: rune) {
     }
 }
 
+@(private)
 tokenizer_on_slash :: proc(tok: ^Tokenizer) {
     rr, err := read_rune(tok)
     if err != nil {
@@ -212,6 +181,7 @@ tokenizer_on_slash :: proc(tok: ^Tokenizer) {
     }
 }
 
+@(private)
 tokenizer_on_double_quote :: proc(tok: ^Tokenizer) {
     rr, err := read_rune(tok)
     if err != nil {
@@ -238,6 +208,7 @@ tokenizer_on_double_quote :: proc(tok: ^Tokenizer) {
     }
 }
 
+@(private)
 tokenizer_on_boundary :: proc(tok: ^Tokenizer, r: rune) {
     if r == '(' {
         tok.kind = Kind.OP_LPAREN
@@ -257,10 +228,7 @@ tokenizer_on_boundary :: proc(tok: ^Tokenizer, r: rune) {
     append(&tok.buffer, r)
 }
 
-Token :: struct {
-    kind: Kind,
-    val: string
-}
+///////////////////////////////////////////////////////////////
 
 tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
     assert( tok.s == State.CLEAN )
