@@ -5,7 +5,7 @@ import "core:os"
 import "core:bufio"
 
 main :: proc() {
-    tok := Tokenizer{stream=os.to_stream(os.stdin), s=State.CLEAN, kind=Kind.UNDEF}
+    tok := Tokenizer{stream=os.to_stream(os.stdin), s=State.CLEAN}
 
     for {
         t := tokenizer_next_token(&tok)
