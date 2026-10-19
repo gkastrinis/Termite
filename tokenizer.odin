@@ -230,8 +230,6 @@ on_boundary :: proc(tok: ^Tokenizer, r: rune) {
         tok.kind = Kind.OP_COMMA
     } else if r == ';' {
         tok.kind = Kind.OP_SEMICOLON
-    } else if r == '.' {
-        tok.kind = Kind.OP_DOT
     } else if r == '=' {
         tok.kind = Kind.OP_EQ
     }

@@ -1,0 +1,7 @@
+
+decl parent(person:Str, child:Str)
+
+def ancestor(x, y), grandparent(x, z, y):
+    ancestor(x, z),
+    parent (z, y)
+
