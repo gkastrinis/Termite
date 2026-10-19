@@ -3,13 +3,13 @@ package termite
 import "core:io"
 
 TokenKind :: enum {
-    K_TRUE, K_FALSE, K_DEF, K_DECL,
+    TRUE, FALSE, DEF, DECL,
 
-    OP_LPAREN, OP_RPAREN,
-    OP_COLON, OP_COMMA, OP_SEMICOLON,
-    OP_EQ, OP_DIV,
+    LPAREN, RPAREN,
+    COMMA, COLON, SEMICOLON,
+    EQ, NEQ, DIV,
 
-    T_ID, T_STRING, T_INT,
+    ID, STRING, INT,
 
     ERROR, EOF,
 }
@@ -38,4 +38,29 @@ Tokenizer :: struct {
     buffer: [dynamic]rune,
 }
 
+ExprKind :: enum {
+    ATOM, VAR,
+    STRING, INT, TRUE, FALSE,
+    AND,
+}
 
+Expr :: struct {
+    kind: ExprKind,
+    op: string,
+    args: [dynamic]Expr,
+}
+
+Relation :: struct {
+    name: string,
+    arity: u8,
+    fields: [dynamic]string,
+    types: [dynamic]string,
+}
+
+Parser :: struct {
+    tokenizer: Tokenizer,
+    has_ahead: bool,
+    ahead: Token,
+
+    relations: map[string]Relation,
+}
