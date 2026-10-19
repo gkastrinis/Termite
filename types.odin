@@ -2,32 +2,29 @@ package termite
 
 import "core:io"
 
-Kind :: enum {
+TokenKind :: enum {
     K_TRUE, K_FALSE, K_DEF, K_DECL,
 
     OP_LPAREN, OP_RPAREN,
     OP_COLON, OP_COMMA, OP_SEMICOLON,
     OP_EQ, OP_DIV,
 
-    ID, STRING, INT,
+    T_ID, T_STRING, T_INT,
 
     ERROR, EOF,
 }
 
 Token :: struct {
-    kind: Kind,
+    kind: TokenKind,
     val: string
 }
 
-State :: enum {
+TokenizerState :: enum {
     CLEAN,
-
     D, DE, DEF, DEC, DECL,
     T, TR, TRU, TRUE,
     F, FA, FAL, FALS, FALSE,
-    ID,
-
-    ERROR,
+    S_ID,
 }
 
 Tokenizer :: struct {
@@ -35,8 +32,10 @@ Tokenizer :: struct {
     ahead1: rune,
     ahead2: rune,
 
-    s: State,
+    s: TokenizerState,
 
-    kind: Kind,
+    kind: TokenKind,
     buffer: [dynamic]rune,
 }
+
+

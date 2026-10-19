@@ -1,7 +1,12 @@
 
-decl parent(person:Str, child:Str)
+//decl parent(person:Str, child:Str)
 
-def ancestor(x, y), grandparent(x, z, y):
-    ancestor(x, z),
-    parent (z, y)
+def ancestor(x1, y2), grandparent(x3, z4, y5):
+    ancestor(x6, z7),
+    parent (z8, y9)
 
+
+// foo( x,  y), bar( a,  b)
+//     E1  E2       E4  E5
+//  E3
+//  
