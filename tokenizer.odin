@@ -36,13 +36,9 @@ is_id_like :: proc(s: TokenizerState) -> bool {
 
 @(private)
 read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
-    if tok.ahead2 != '\x00' {
-        r := tok.ahead2
-        tok.ahead2 = '\x00'
-        return r, nil
-    } else if tok.ahead1 != '\x00' {
-        r := tok.ahead1
-        tok.ahead1 = '\x00'
+    if tok.ahead != '\x00' {
+        r := tok.ahead
+        tok.ahead = '\x00'
         return r, nil
     } else {
         r, _, err := io.read_rune(tok.stream)
@@ -52,13 +48,8 @@ read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
 
 @(private)
 unread_rune :: proc(tok: ^Tokenizer, r: rune) {
-    if tok.ahead1 == '\x00' {
-        tok.ahead1 = r
-    } else if tok.ahead2 == '\x00' {
-        tok.ahead2 = r
-    } else {
-        assert(false)
-    }
+    assert( tok.ahead == '\x00' )
+    tok.ahead = r
 }
 
 @(private)
@@ -68,6 +59,55 @@ to_new_state :: proc(tok: ^Tokenizer, new_state: TokenizerState, r: rune) {
 }
 
 ///////////////////////////////////////////////////////////////
+
+@(private)
+on_slash :: proc(tok: ^Tokenizer) {
+    r, err := read_rune(tok)
+    if err != nil {
+        tok.kind = .ERROR
+        return
+    } else if r != '/' {
+        assert( len(tok.buffer) == 0 )
+        unread_rune(tok, r)
+        tok.kind = .DIV
+        append(&tok.buffer, '/')
+        return
+    }
+    for {
+        if r == '\n' { return }
+        r, err = read_rune(tok)
+        if err != nil {
+            tok.kind = .ERROR
+            return
+        }
+    }
+}
+
+@(private)
+on_double_quote :: proc(tok: ^Tokenizer) {
+    r, err := read_rune(tok)
+    if err != nil {
+        tok.kind = .ERROR
+        return
+    }
+    for {
+        if r == '"' {
+            tok.kind = .STRING
+            tok.s = .CLEAN
+            return
+        } else if r == '\\' {
+            append(&tok.buffer, r)
+            r, err = read_rune(tok)
+        }
+        append(&tok.buffer, r)
+
+        r, err = read_rune(tok)
+        if err != nil {
+            tok.kind = .ERROR
+            return
+        }
+    }
+}
 
 @(private)
 on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
@@ -164,59 +204,6 @@ on_int :: proc(tok: ^Tokenizer, r: rune) {
         }
         tok.kind = .ERROR
         return
-    }
-}
-
-@(private)
-on_slash :: proc(tok: ^Tokenizer) {
-    rr, err := read_rune(tok)
-    if err != nil {
-        tok.kind = .ERROR
-        return
-    } else if rr != '/' {
-        assert( len(tok.buffer) == 0 )
-        unread_rune(tok, rr)
-        tok.kind = .DIV
-        append(&tok.buffer, '/')
-        return
-    }
-
-    for {
-        if rr == '\n' {
-            return
-        }
-        rr, err = read_rune(tok)
-        if err != nil {
-            tok.kind = .ERROR
-            return
-        }
-    }
-}
-
-@(private)
-on_double_quote :: proc(tok: ^Tokenizer) {
-    rr, err := read_rune(tok)
-    if err != nil {
-        tok.kind = .ERROR
-        return
-    }
-
-    for {
-        if rr == '"' {
-            tok.kind = .STRING
-            tok.s = .CLEAN
-            return
-        } else if rr == '\\' {
-            append(&tok.buffer, rr)
-            rr, err = read_rune(tok)
-        }
-        append(&tok.buffer, rr)
-
-        rr, err = read_rune(tok)
-        if err != nil {
-            tok.kind = .ERROR
-            return
-        }
     }
 }
 

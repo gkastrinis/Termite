@@ -29,19 +29,13 @@ TokenizerState :: enum {
 
 Tokenizer :: struct {
     stream: io.Stream,
-    ahead1: rune,
-    ahead2: rune,
+    ahead: rune,
+    ahead_err: io.Error,
 
     s: TokenizerState,
 
     kind: TokenKind,
     buffer: [dynamic]rune,
-}
-
-ExprKind :: enum {
-    ATOM, VAR,
-    STRING, INT, TRUE, FALSE,
-    AND,
 }
 
 Expr :: struct {

@@ -56,6 +56,12 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
     return rel
 }
 
+ExprKind :: enum {
+    ATOM, VAR,
+    STRING, INT, TRUE, FALSE,
+    AND,
+}
+
 parse_expr :: proc(parser: ^Parser) -> Expr {
     t := _next(parser)
     if t.kind == .ID {
@@ -151,8 +157,6 @@ parse :: proc(parser: ^Parser) {
             parse_decl(parser)
         } else if t.kind == .DEF {
             parse_def(parser)
-        } else if t.kind == .STRING {
-
         } else if t.kind == .ERROR {
             fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.val, t.kind)
             break
