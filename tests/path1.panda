@@ -1,0 +1,4 @@
+decl edge(from:Str, to:Str)
+
+def path(x, y): edge(x, y)
+def path(x, y): edge(x, z), path(z, y)
