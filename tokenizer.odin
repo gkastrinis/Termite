@@ -5,6 +5,84 @@ import "core:io"
 import "core:os"
 import "core:unicode/utf8"
 
+TokenKind :: enum {
+    TRUE, FALSE, DEF, DECL,
+    LPAREN, RPAREN,
+    COMMA, COLON, SEMICOLON,
+    EQ, NEQ, DIV,
+    ID, STRING, INT,
+    ERROR, EOF,
+}
+
+Token :: struct {
+    kind: TokenKind,
+    val: string
+}
+
+TokenizerState :: enum {
+    CLEAN,
+    D, DE, DEF, DEC, DECL,
+    T, TR, TRU, TRUE,
+    F, FA, FAL, FALS, FALSE,
+    S_ID,
+}
+
+Tokenizer :: struct {
+    stream: io.Stream,
+    ahead: rune,
+    ahead_err: io.Error,
+
+    s: TokenizerState,
+
+    kind: TokenKind,
+    buffer: [dynamic]rune,
+}
+
+tokenizer_init :: proc(stream: io.Stream) -> Tokenizer {
+    return Tokenizer{stream=os.to_stream(os.stdin), s=TokenizerState.CLEAN}
+}
+
+tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
+    assert( tok.s == .CLEAN )
+    for {
+        r, err := read_rune(tok)
+        if err != nil {
+            tok.kind = .EOF
+            break
+        }
+
+        if is_white(r) {
+            continue
+        } else if r == '/' {
+            on_slash(tok)
+            if tok.kind == .DIV { break }
+        } else if r == '"' {
+            on_double_quote(tok)
+            break
+        } else if is_id_start(r) {
+            on_id_or_kw(tok, r)
+            break
+        } else if is_num(r) {
+            on_int(tok, r)
+            break
+        } else if is_boundary(r) && !is_white(r) {
+            on_boundary(tok, r)
+            break
+        } else {
+            append(&tok.buffer, r)
+            tok.kind = .ERROR
+            break
+        }
+    }
+    assert( tok.s == .CLEAN )
+    k := tok.kind
+    str, _ := utf8.runes_to_string(tok.buffer[:])
+    clear(&tok.buffer)
+    return Token{k, str}
+}
+
+///////////////////////////////////////////////////////////////
+
 @(private)
 is_white :: proc(r: rune) -> bool {
     return r == ' ' || r == '\t' || r == '\t' || r == '\n'
@@ -233,49 +311,4 @@ on_boundary :: proc(tok: ^Tokenizer, r: rune) {
         }
     }
     append(&tok.buffer, r)
-}
-
-///////////////////////////////////////////////////////////////
-
-tokenizer_init :: proc(stream: io.Stream) -> Tokenizer {
-    return Tokenizer{stream=os.to_stream(os.stdin), s=TokenizerState.CLEAN}
-}
-
-tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
-    assert( tok.s == .CLEAN )
-    for {
-        r, err := read_rune(tok)
-        if err != nil {
-            tok.kind = .EOF
-            break
-        }
-
-        if is_white(r) {
-            continue
-        } else if r == '/' {
-            on_slash(tok)
-            if tok.kind == .DIV { break }
-        } else if r == '"' {
-            on_double_quote(tok)
-            break
-        } else if is_id_start(r) {
-            on_id_or_kw(tok, r)
-            break
-        } else if is_num(r) {
-            on_int(tok, r)
-            break
-        } else if is_boundary(r) && !is_white(r) {
-            on_boundary(tok, r)
-            break
-        } else {
-            append(&tok.buffer, r)
-            tok.kind = .ERROR
-            break
-        }
-    }
-    assert( tok.s == .CLEAN )
-    k := tok.kind
-    str, _ := utf8.runes_to_string(tok.buffer[:])
-    clear(&tok.buffer)
-    return Token{k, str}
 }

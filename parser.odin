@@ -3,6 +3,70 @@ package termite
 import "core:fmt"
 import "core:io"
 
+ExprKind :: enum {
+    ATOM, VAR,
+    STRING, INT, TRUE, FALSE,
+    AND,
+}
+
+Expr :: struct {
+    kind: ExprKind,
+    op: string,
+    args: [dynamic]Expr,
+}
+
+Relation :: struct {
+    name: string,
+    arity: u8,
+    fields: [dynamic]string,
+    types: [dynamic]string,
+}
+
+Rule :: struct {
+    id: u16,
+    head: [dynamic]Expr,
+    body: [dynamic]Expr
+}
+
+Parser :: struct {
+    tokenizer: Tokenizer,
+    has_ahead: bool,
+    ahead: Token,
+
+    relations: map[string]Relation,
+    rules: [dynamic]Rule,
+    last_rule_id: u16,
+}
+
+parser_init :: proc(stream: io.Stream) -> Parser {
+    return Parser{
+        tokenizer= tokenizer_init(stream),
+        has_ahead= false,
+        relations= make(map[string]Relation),
+    }
+}
+
+parse :: proc(parser: ^Parser) {
+    for {
+        t := _next(parser)
+        if t.kind == .EOF {
+            fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
+            break
+        } else if t.kind == .DECL {
+            parse_decl(parser)
+        } else if t.kind == .DEF {
+            parse_def(parser)
+        } else if t.kind == .ERROR {
+            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.val, t.kind)
+            break
+        } else {
+            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.val, t.kind)
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////
+
 @(private)
 _peek :: proc(parser: ^Parser) -> Token {
     if !parser.has_ahead {
@@ -52,14 +116,7 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
         rel.arity += 1
     }
     parser.relations[rel.name] = rel
-    print_relation(rel)
     return rel
-}
-
-ExprKind :: enum {
-    ATOM, VAR,
-    STRING, INT, TRUE, FALSE,
-    AND,
 }
 
 parse_expr :: proc(parser: ^Parser) -> Expr {
@@ -99,79 +156,53 @@ parse_expr :: proc(parser: ^Parser) -> Expr {
     return Expr{}
 }
 
-parse_head :: proc(parser: ^Parser) {
-    atoms: [dynamic]Expr
-    for {
-        // TODO: parse_atom
-        append(&atoms, parse_expr(parser))
-        t := _peek(parser)
-        if t.kind != .COMMA { break }
-        _ = _next(parser)
-    }
-    for a in atoms {
-        print_expr(a)
-        fmt.println()
-    }
-    fmt.println("->")
-}
-
-parse_body :: proc(parser: ^Parser) {
-    exprs: [dynamic]Expr
-    for {
-        append(&exprs, parse_expr(parser))
-        t := _peek(parser)
-        if t.kind != .COMMA { break }
-        _ = _next(parser)
-    }
-    for e in exprs {
-        fmt.print("    ")
-        print_expr(e)
-        fmt.println()
-    }
-}
-
 parse_def :: proc(parser: ^Parser) {
-    parse_head(parser)
-    assert( _next(parser).kind == .COLON )
-    parse_body(parser)
-    fmt.println("----------------------------")
-}
+    rule := Rule{id=parser.last_rule_id}
+    parser.last_rule_id += 1
 
-///////////////////////////////////////////////////////////////
-
-parser_init :: proc(stream: io.Stream) -> Parser {
-    return Parser{
-        tokenizer= tokenizer_init(stream),
-        has_ahead= false,
-        relations= make(map[string]Relation),
-    }
-}
-
-parse :: proc(parser: ^Parser) {
     for {
-        t := _next(parser)
-        if t.kind == .EOF {
-            fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
-            break
-        } else if t.kind == .DECL {
-            parse_decl(parser)
-        } else if t.kind == .DEF {
-            parse_def(parser)
-        } else if t.kind == .ERROR {
-            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.val, t.kind)
-            break
+        append(&rule.head, parse_expr(parser))
+        t := _peek(parser)
+        if t.kind != .COMMA { break }
+        _ = _next(parser)
+    }
+    assert( _next(parser).kind == .COLON )
+    for {
+        append(&rule.body, parse_expr(parser))
+        t := _peek(parser)
+        if t.kind != .COMMA { break }
+        _ = _next(parser)
+    }
+    append(&parser.rules, rule)
+    update_relations(parser, rule)
+}
+
+update_relations :: proc(parser: ^Parser, rule: Rule) {
+    for e in rule.head {
+        assert( e.kind == .ATOM )
+        if e.op in parser.relations {
+            rel := parser.relations[e.op]
+            assert( rel.arity == u8(len(e.args)) )
         } else {
-            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.val, t.kind)
+            parser.relations[e.op] = Relation{name=e.op, arity=u8(len(e.args))}
         }
     }
 }
+
+///////////////////////////////////////////////////////////////
 
 print_relation :: proc(rel: Relation) {
     fmt.printf("\x1b[34m%v/\x1b[30m%v\x1b[0m ", rel.name, rel.arity)
     for i in 0..<len(rel.fields) {
         if i != 0 { fmt.printf("\x1b[30m x \x1b[0m") }
         fld, type := rel.fields[i], rel.types[i]
-        fmt.printf("(\x1b[33m%v\x1b[0m \x1b[30m<%v>\x1b[0m)", fld, type)
+        fmt.printf("(\x1b[30m%v\x1b[0m \x1b[35m<%v>\x1b[0m)", fld, type)
+    }
+    if len(rel.fields) == 0 && len(rel.types) == 0 {
+        for i in 0..<rel.arity {
+            if i != 0 { fmt.printf("\x1b[30m x \x1b[0m") }
+            fmt.printf("(\x1b[30mv%v\x1b[0m \x1b[35m<?>\x1b[0m)", i+1)
+        }
     }
     fmt.println()
 }
@@ -190,5 +221,18 @@ print_expr :: proc(e: Expr) {
         fmt.printf("\x1b[35m%v\x1b[0m", e.op)
     } else {
         fmt.print(e.op)
+    }
+}
+
+print_rule :: proc(rule: Rule) {
+    for e in rule.head {
+        fmt.print("-> ")
+        print_expr(e)
+        fmt.println()
+    }
+    for e in rule.body {
+        fmt.print("   ")
+        print_expr(e)
+        fmt.println()
     }
 }
