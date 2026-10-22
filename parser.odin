@@ -4,14 +4,13 @@ import "core:fmt"
 import "core:io"
 
 ExprKind :: enum {
-    ATOM, VAR,
-    STRING, INT, TRUE, FALSE,
-    AND,
+    ATOM, VAR, STRING, INT,
 }
 
 Expr :: struct {
     kind: ExprKind,
     op: string,
+    type: string,
     args: [dynamic]Expr,
 }
 
@@ -33,16 +32,19 @@ Parser :: struct {
     has_ahead: bool,
     ahead: Token,
 
-    relations: map[string]Relation,
     rules: [dynamic]Rule,
     last_rule_id: u16,
+
+    declared: map[string]Relation,
+    inferred: map[string]Relation,
 }
 
 parser_init :: proc(stream: io.Stream) -> Parser {
     return Parser{
         tokenizer= tokenizer_init(stream),
         has_ahead= false,
-        relations= make(map[string]Relation),
+        declared= make(map[string]Relation),
+        inferred= make(map[string]Relation),
     }
 }
 
@@ -89,7 +91,7 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
     t := _next(parser)
     assert( t.kind == .ID )
 
-    assert(!(t.val in parser.relations))
+    assert(!(t.val in parser.declared))
 
     rel := Relation{name=t.val, arity=0}
 
@@ -104,7 +106,7 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
             continue
         } else if name.kind != .ID {
             fmt.println(t)
-            assert(false)
+            unreachable()
         }
         t = _next(parser)
         assert( t.kind == .COLON )
@@ -115,7 +117,7 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
         append(&rel.types, t.val)
         rel.arity += 1
     }
-    parser.relations[rel.name] = rel
+    parser.declared[rel.name] = rel
     return rel
 }
 
@@ -145,13 +147,11 @@ parse_expr :: proc(parser: ^Parser) -> Expr {
             return Expr{kind=.VAR, op=t.val}
         }
     } else if t.kind == .INT {
-        return Expr{kind=.INT, op=t.val}
+        return Expr{kind=.INT, op=t.val, type="Int64"}
     } else if t.kind == .STRING {
-        return Expr{kind=.STRING, op=t.val}
-    } else if t.kind == .TRUE {
-        return Expr{kind=.TRUE, op=t.val}
-    } else if t.kind == .FALSE {
-        return Expr{kind=.FALSE, op=t.val}
+        return Expr{kind=.STRING, op=t.val, type="Str"}
+    } else if t.kind == .TRUE || t.kind == .FALSE {
+        return Expr{kind=.ATOM, op=t.val}
     }
     return Expr{}
 }
@@ -180,8 +180,11 @@ parse_def :: proc(parser: ^Parser) {
 update_relations :: proc(parser: ^Parser, rule: Rule) {
     for e in rule.head {
         assert( e.kind == .ATOM )
-        if e.op in parser.relations {
-            rel := parser.relations[e.op]
+        if e.op in parser.declared {
+            rel := parser.declared[e.op]
+            assert( rel.arity == u8(len(e.args)) )
+        } else if e.op in parser.inferred {
+            rel := parser.inferred[e.op]
             assert( rel.arity == u8(len(e.args)) )
         } else {
             rel := Relation{name=e.op, arity=u8(len(e.args))}
@@ -189,72 +192,7 @@ update_relations :: proc(parser: ^Parser, rule: Rule) {
                 append(&rel.fields, "?")
                 append(&rel.types, "Any")
             }
-            parser.relations[e.op] = rel
+            parser.inferred[e.op] = rel
         }
-    }
-}
-
-///////////////////////////////////////////////////////////////
-
-print_relation :: proc(rel: Relation) {
-    fmt.printf("   \x1b[34m%v/\x1b[30m%v\x1b[0m ", rel.name, rel.arity)
-    for i in 0..<len(rel.fields) {
-        if i != 0 { fmt.printf("\x1b[30m x \x1b[0m") }
-        fld, type := rel.fields[i], rel.types[i]
-        fmt.printf("(\x1b[30m%v\x1b[0m ", fld)
-        if type == "Any" {
-            fmt.printf("\x1b[45m<%v>\x1b[0m)", type)
-        } else {
-            fmt.printf("\x1b[35m<%v>\x1b[0m)", type)
-        }
-    }
-    // if len(rel.fields) == 0 && len(rel.types) == 0 {
-    //     for i in 0..<rel.arity {
-    //         if i != 0 { fmt.printf("\x1b[30m x \x1b[0m") }
-    //         // fmt.printf("(\x1b[30mv%v\x1b[0m )", i+1)
-    //         fmt.printf("(\x1b[30mv%v\x1b[0m \x1b[35m<?>\x1b[0m)", i+1)
-    //     }
-    // }
-    fmt.println()
-}
-
-print_expr :: proc(e: Expr) {
-    if e.kind == .ATOM {
-        fmt.printf("\x1b[32m%v\x1b[0m(", e.op)
-        for i in 0..<len(e.args) {
-            if i != 0 { fmt.print(", ") }
-            print_expr(e.args[i])
-        }
-        fmt.print(")")
-    } else if e.kind == .STRING {
-        fmt.printf("\x1b[36m\"%v\"\x1b[0m", e.op)
-    } else if e.kind == .TRUE || e.kind == .FALSE {
-        fmt.printf("\x1b[35m%v\x1b[0m", e.op)
-    } else {
-        fmt.print(e.op)
-    }
-}
-
-print_rule :: proc(rule: Rule) {
-    for e in rule.head {
-        fmt.printf("   -> ")
-        print_expr(e)
-        fmt.println()
-    }
-    for e in rule.body {
-        fmt.print("   ")
-        print_expr(e)
-        fmt.println()
-    }
-}
-
-print_program :: proc(parser: ^Parser) {
-    for rule in parser.rules {
-        fmt.printf("\x1b[30mRule\x1b[0m\n")
-        print_rule(rule)
-    }
-    fmt.printf("\x1b[30m\nRelations\x1b[0m\n")
-    for _, rel in parser.relations {
-        print_relation(rel)
     }
 }

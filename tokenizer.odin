@@ -5,11 +5,25 @@ import "core:io"
 import "core:os"
 import "core:unicode/utf8"
 
+// NOTE: Keywords
+// def, decl, true, false
+// NOTE: Tokens
+// ID, Integer, String
+// '(', ')', ',', ';', ':',
+// '=', '!=',
+// '+', '-', '*', '/', '%', '^',
+// TODO:
+// Add '_' in integers, e.g. 1_000_000
+// Add hex and octals
+// Add floats
+// Add raw strings?
+
 TokenKind :: enum {
     TRUE, FALSE, DEF, DECL,
     LPAREN, RPAREN,
-    COMMA, COLON, SEMICOLON,
-    EQ, NEQ, DIV,
+    COMMA, SEMICOLON, COLON,
+    EQ, NEQ,
+    PLUS, MINUS, MULT, DIV, MOD, POW,
     ID, STRING, INT,
     ERROR, EOF,
 }
@@ -24,7 +38,7 @@ TokenizerState :: enum {
     D, DE, DEF, DEC, DECL,
     T, TR, TRU, TRUE,
     F, FA, FAL, FALS, FALSE,
-    S_ID,
+    ID,
 }
 
 Tokenizer :: struct {
@@ -49,9 +63,7 @@ tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
         if err != nil {
             tok.kind = .EOF
             break
-        }
-
-        if is_white(r) {
+        } else if is_white(r) {
             continue
         } else if r == '/' {
             on_slash(tok)
@@ -81,6 +93,15 @@ tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
     return Token{k, str}
 }
 
+
+tokenizer_test :: proc(tok: ^Tokenizer) {
+    for {
+        t := tokenizer_next_token(tok)
+        if t.kind == .EOF { break }
+        fmt.printf("%v:%v\n", t.kind, t.val)
+    }
+}
+
 ///////////////////////////////////////////////////////////////
 
 @(private)
@@ -91,7 +112,8 @@ is_white :: proc(r: rune) -> bool {
 @(private)
 is_boundary :: proc(r: rune) -> bool {
     return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' ||
-            r == '.' || r == '=' || r == '!' || is_white(r)
+            r == '.' || r == '=' || r == '!' || r == '+' || r == '-' ||
+            r == '*' || r == '/' || r == '%' || r == '^' || is_white(r)
 }
 
 @(private)
@@ -105,11 +127,16 @@ is_num :: proc(r: rune) -> bool {
 }
 
 @(private)
+is_id_main :: proc(r: rune) -> bool {
+    return is_id_start(r) || is_num(r)
+}
+
+@(private)
 is_id_like :: proc(s: TokenizerState) -> bool {
     return s == .D || s == .DE || s == .DEF || s == .DEC || s == .DECL ||
         s == .T || s == .TR || s == .TRU || s == .TRUE ||
         s == .F || s == .FA || s == .FAL || s == .FALS || s == .FALSE ||
-        s == .S_ID
+        s == .ID
 }
 
 @(private)
@@ -188,10 +215,19 @@ on_double_quote :: proc(tok: ^Tokenizer) {
 }
 
 @(private)
-on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
+token_found :: proc(tok: ^Tokenizer, kind: TokenKind, r: rune) -> bool {
+    tok.kind = kind
+    tok.s = .CLEAN
+    if is_boundary(r) { unread_rune(tok, r) }
+    return true
+}
+
+@(private)
+on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) -> bool {
     rr := r
     err: io.Error
     for {
+        // def, decl
         if tok.s == .CLEAN && rr == 'd' {
             to_new_state(tok, .D, rr)
 
@@ -199,18 +235,19 @@ on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
             to_new_state(tok, .DE, rr)
         } else if tok.s == .DE && rr == 'f' {
             to_new_state(tok, .DEF, rr)
-        } else if tok.s == .DEF && is_boundary(rr) {
-            tok.kind = .DEF
-            break
+        } else if tok.s == .DEF {
+            if !is_id_main(rr) { return token_found(tok, .DEF, rr) }
+            to_new_state(tok, .ID, rr)
 
         } else if tok.s == .DE && rr == 'c' {
             to_new_state(tok, .DEC, rr)
         } else if tok.s == .DEC && rr == 'l' {
             to_new_state(tok, .DECL, rr)
-        } else if tok.s == .DECL && is_boundary(rr) {
-            tok.kind = .DECL
-            break
+        } else if tok.s == .DECL {
+            if !is_id_main(rr) { return token_found(tok, .DECL, rr) }
+            to_new_state(tok, .ID, rr)
 
+        // true
         } else if tok.s == .CLEAN && rr == 't' {
             to_new_state(tok, .T, rr)
         } else if tok.s == .T && rr == 'r' {
@@ -219,10 +256,11 @@ on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
             to_new_state(tok, .TRU, rr)
         } else if tok.s == .TRU && rr == 'e' {
             to_new_state(tok, .TRUE, rr)
-        } else if tok.s == .TRUE && is_boundary(rr) {
-            tok.kind = .TRUE
-            break
+        } else if tok.s == .TRUE {
+            if !is_id_main(rr) { return token_found(tok, .TRUE, rr) }
+            to_new_state(tok, .ID, rr)
 
+        // false
         } else if tok.s == .CLEAN && rr == 'f' {
             to_new_state(tok, .F, rr)
         } else if tok.s == .F && rr == 'a' {
@@ -233,34 +271,26 @@ on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
             to_new_state(tok, .FALS, rr)
         } else if tok.s == .FALS && rr == 'e' {
             to_new_state(tok, .FALSE, rr)
-        } else if tok.s == .FALSE && is_boundary(rr) {
-            tok.kind = .FALSE
-            break
+        } else if tok.s == .FALSE {
+            if !is_id_main(rr) { return token_found(tok, .FALSE, rr) }
+            to_new_state(tok, .ID, rr)
 
+        // <id>
         } else if tok.s == .CLEAN && is_id_start(rr) {
             assert( len(tok.buffer) == 0 )
-            to_new_state(tok, .S_ID, rr)
+            to_new_state(tok, .ID, rr)
         } else if is_id_like(tok.s) {
-            if (is_id_start(rr) || is_num(rr)) {
-                append(&tok.buffer, rr)
-            } else if is_boundary(rr) {
-                tok.kind = .ID
-                break
-            } else {
-                tok.kind = .ERROR
-                return
-            }
+            if !is_id_main(rr) { return token_found(tok, .ID, rr) }
+            append(&tok.buffer, rr)
         }
 
         rr, err = read_rune(tok)
         if err != nil {
             tok.kind = .ERROR
-            return
+            return true
         }
     }
-    tok.s = .CLEAN
-    if is_boundary(rr) { unread_rune(tok, rr) }
-    return
+    unreachable()
 }
 
 @(private)
@@ -291,12 +321,12 @@ on_boundary :: proc(tok: ^Tokenizer, r: rune) {
         tok.kind = .LPAREN
     } else if r == ')' {
         tok.kind = .RPAREN
-    } else if r == ':' {
-        tok.kind = .COLON
     } else if r == ',' {
         tok.kind = .COMMA
     } else if r == ';' {
         tok.kind = .SEMICOLON
+    } else if r == ':' {
+        tok.kind = .COLON
     } else if r == '=' {
         tok.kind = .EQ
     } else if r == '!' {
@@ -309,6 +339,16 @@ on_boundary :: proc(tok: ^Tokenizer, r: rune) {
             unread_rune(tok, r2)
             tok.kind = .ERROR
         }
+    } else if r == '+' {
+        tok.kind = .PLUS
+    } else if r == '-' {
+        tok.kind = .MINUS
+    } else if r == '*' {
+        tok.kind = .MULT
+    } else if r == '%' {
+        tok.kind = .MOD
+    } else if r == '^' {
+        tok.kind = .POW
     }
     append(&tok.buffer, r)
 }
