@@ -5,7 +5,19 @@ import "core:os"
 
 main :: proc() {
     tok := tokenizer_init(os.to_stream(os.stdin))
-    tokenizer_test(&tok)
+    actual := tokenizer_test(&tok)
+    expected, err := os.read_entire_file_from_path(
+        "tests/tokens.tr.exp",
+        context.allocator,
+    )
+    // testing.expect_value(t, err, os.ERROR_NONE)
+    // if err != os.ERROR_NONE {
+    //     return
+    // }
+    defer delete(expected)
+    fmt.printf("-------\n%v\n-------", actual)
+    fmt.printf("-------\n%v\n-------", string(expected))
+    fmt.println(string(expected) == actual)
 
     // parser := parser_init(os.to_stream(os.stdin))
     // parse(&parser)

@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:io"
 import "core:os"
 import "core:unicode/utf8"
+import "core:strings"
 
 // NOTE: Keywords
 // def, decl, true, false
@@ -29,11 +30,11 @@ TokenKind :: enum {
 }
 
 Token :: struct {
-    kind: TokenKind,
-    val: string
+    Kind: TokenKind,
+    Val: string
 }
 
-TokenizerState :: enum {
+tokenizerState :: enum {
     CLEAN,
     D, DE, DEF, DEC, DECL,
     T, TR, TRU, TRUE,
@@ -46,17 +47,21 @@ Tokenizer :: struct {
     ahead: rune,
     ahead_err: io.Error,
 
-    s: TokenizerState,
+    s: tokenizerState,
 
     kind: TokenKind,
     buffer: [dynamic]rune,
 }
 
-tokenizer_init :: proc(stream: io.Stream) -> Tokenizer {
-    return Tokenizer{stream=os.to_stream(os.stdin), s=TokenizerState.CLEAN}
+init :: proc(stream: io.Stream) -> Tokenizer {
+    return Tokenizer{stream=stream, s=tokenizerState.CLEAN}
 }
 
-tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
+destroy :: proc(tok: ^Tokenizer) {
+    delete(tok.buffer)
+}
+
+next_token :: proc(tok: ^Tokenizer) -> Token {
     assert( tok.s == .CLEAN )
     for {
         r, err := read_rune(tok)
@@ -93,13 +98,19 @@ tokenizer_next_token :: proc(tok: ^Tokenizer) -> Token {
     return Token{k, str}
 }
 
-
-tokenizer_test :: proc(tok: ^Tokenizer) {
+test :: proc(tok: ^Tokenizer) -> string {
+    builder: strings.Builder
+    defer strings.builder_destroy(&builder)
     for {
-        t := tokenizer_next_token(tok)
-        if t.kind == .EOF { break }
-        fmt.printf("%v:%v\n", t.kind, t.val)
+        t := next_token(tok)
+        defer delete(t.Val)
+        if t.Kind == .EOF { break }
+        strings.write_string(&builder, fmt.tprintf("%v", t.Kind))
+        strings.write_string(&builder, ":")
+        strings.write_string(&builder, t.Val)
+        strings.write_string(&builder, "\n")
     }
+    return strings.clone(strings.to_string(builder))
 }
 
 ///////////////////////////////////////////////////////////////
@@ -132,7 +143,7 @@ is_id_main :: proc(r: rune) -> bool {
 }
 
 @(private)
-is_id_like :: proc(s: TokenizerState) -> bool {
+is_id_like :: proc(s: tokenizerState) -> bool {
     return s == .D || s == .DE || s == .DEF || s == .DEC || s == .DECL ||
         s == .T || s == .TR || s == .TRU || s == .TRUE ||
         s == .F || s == .FA || s == .FAL || s == .FALS || s == .FALSE ||
@@ -158,7 +169,7 @@ unread_rune :: proc(tok: ^Tokenizer, r: rune) {
 }
 
 @(private)
-to_new_state :: proc(tok: ^Tokenizer, new_state: TokenizerState, r: rune) {
+to_new_state :: proc(tok: ^Tokenizer, new_state: tokenizerState, r: rune) {
     tok.s = new_state
     append(&tok.buffer, r)
 }
@@ -302,7 +313,7 @@ on_int :: proc(tok: ^Tokenizer, r: rune) {
             tok.kind = .ERROR
             return
         } else if is_num(rr) {
-            append(&tok.buffer, r)
+            append(&tok.buffer, rr)
             continue
         } else if is_boundary(rr) {
             tok.kind = .INT
