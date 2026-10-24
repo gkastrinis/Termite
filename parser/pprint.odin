@@ -1,4 +1,4 @@
-package termite
+package parser
 
 import "core:fmt"
 

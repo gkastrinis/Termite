@@ -1,7 +1,8 @@
-package termite
+package parser
 
 import "core:fmt"
 import "core:io"
+import tokenizer "../tokenizer"
 
 ExprKind :: enum {
     ATOM, VAR, STRING, INT,
@@ -28,9 +29,9 @@ Rule :: struct {
 }
 
 Parser :: struct {
-    tokenizer: Tokenizer,
+    tok: tokenizer.Tokenizer,
     has_ahead: bool,
-    ahead: Token,
+    ahead: tokenizer.Token,
 
     rules: [dynamic]Rule,
     last_rule_id: u16,
@@ -39,30 +40,37 @@ Parser :: struct {
     inferred: map[string]Relation,
 }
 
-parser_init :: proc(stream: io.Stream) -> Parser {
+init :: proc(stream: io.Stream) -> Parser {
     return Parser{
-        tokenizer= tokenizer_init(stream),
+        tok= tokenizer.init(stream),
         has_ahead= false,
         declared= make(map[string]Relation),
         inferred= make(map[string]Relation),
     }
 }
 
+destroy :: proc(parser: ^Parser) {
+    delete(parser.inferred)
+    delete(parser.declared)
+    delete(parser.rules)
+    tokenizer.destroy(&parser.tok)
+}
+
 parse :: proc(parser: ^Parser) {
     for {
         t := _next(parser)
-        if t.kind == .EOF {
+        if t.Kind == tokenizer.TokenKind.EOF {
             fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
             break
-        } else if t.kind == .DECL {
+        } else if t.Kind == tokenizer.TokenKind.DECL {
             parse_decl(parser)
-        } else if t.kind == .DEF {
+        } else if t.Kind == tokenizer.TokenKind.DEF {
             parse_def(parser)
-        } else if t.kind == .ERROR {
-            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.val, t.kind)
+        } else if t.Kind == tokenizer.TokenKind.ERROR {
+            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.Val, t.Kind)
             break
         } else {
-            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.val, t.kind)
+            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.Val, t.Kind)
         }
     }
 }
@@ -70,7 +78,7 @@ parse :: proc(parser: ^Parser) {
 ///////////////////////////////////////////////////////////////
 
 @(private)
-_peek :: proc(parser: ^Parser) -> Token {
+_peek :: proc(parser: ^Parser) -> tokenizer.Token {
     if !parser.has_ahead {
         parser.ahead = _next(parser)
         parser.has_ahead = true
@@ -79,42 +87,42 @@ _peek :: proc(parser: ^Parser) -> Token {
 }
 
 @(private)
-_next :: proc(parser: ^Parser) -> Token {
+_next :: proc(parser: ^Parser) -> tokenizer.Token {
     if parser.has_ahead {
         parser.has_ahead = false
         return parser.ahead
     }
-    return tokenizer_next_token(&parser.tokenizer)
+    return tokenizer.next_token(&parser.tok)
 }
 
 parse_decl :: proc(parser: ^Parser) -> Relation {
     t := _next(parser)
-    assert( t.kind == .ID )
+    assert( t.Kind == .ID )
 
-    assert(!(t.val in parser.declared))
+    assert(!(t.Val in parser.declared))
 
-    rel := Relation{name=t.val, arity=0}
+    rel := Relation{name=t.Val, arity=0}
 
     t = _next(parser)
-    assert( t.kind == .LPAREN )
+    assert( t.Kind == tokenizer.TokenKind.LPAREN )
 
     for {
         name := _next(parser)
-        if name.kind == .RPAREN {
+        if name.Kind == tokenizer.TokenKind.RPAREN {
             break
-        } else if name.kind == .COMMA && rel.arity != 0 {
+        } else if name.Kind == tokenizer.TokenKind.COMMA && rel.arity != 0 {
             continue
-        } else if name.kind != .ID {
+        } else if name.Kind != tokenizer.TokenKind.ID {
             fmt.println(t)
             unreachable()
         }
         t = _next(parser)
-        assert( t.kind == .COLON )
+        assert( t.Kind == tokenizer.TokenKind.COLON )
         t = _next(parser)
-        assert( t.kind == .ID )
+        assert( t.Kind == tokenizer.TokenKind.ID )
 
-        append(&rel.fields, name.val)
-        append(&rel.types, t.val)
+        append(&rel.fields, name.Val)
+        append(&rel.types, t.Val)
         rel.arity += 1
     }
     parser.declared[rel.name] = rel
@@ -123,19 +131,19 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
 
 parse_expr :: proc(parser: ^Parser) -> Expr {
     t := _next(parser)
-    if t.kind == .ID {
+    if t.Kind == tokenizer.TokenKind.ID {
         t2 := _peek(parser)
         // atom
-        if t2.kind == .LPAREN {
+        if t2.Kind == tokenizer.TokenKind.LPAREN {
             _ = _next(parser)
-            e := Expr{kind=.ATOM, op=t.val}
+            e := Expr{kind=.ATOM, op=t.Val}
 
             for {
                 t = _peek(parser)
-                if t.kind == .RPAREN {
+                if t.Kind == tokenizer.TokenKind.RPAREN {
                     _ = _next(parser)
                     break
-                } else if t.kind == .COMMA {
+                } else if t.Kind == tokenizer.TokenKind.COMMA {
                     assert( len(e.args) != 0 )
                     _ = _next(parser)
                 } else {
@@ -144,14 +152,14 @@ parse_expr :: proc(parser: ^Parser) -> Expr {
             }
             return e
         } else {
-            return Expr{kind=.VAR, op=t.val}
+            return Expr{kind=.VAR, op=t.Val}
         }
-    } else if t.kind == .INT {
-        return Expr{kind=.INT, op=t.val, type="Int64"}
-    } else if t.kind == .STRING {
-        return Expr{kind=.STRING, op=t.val, type="Str"}
-    } else if t.kind == .TRUE || t.kind == .FALSE {
-        return Expr{kind=.ATOM, op=t.val}
+    } else if t.Kind == tokenizer.TokenKind.INT {
+        return Expr{kind=.INT, op=t.Val, type="Int64"}
+    } else if t.Kind == tokenizer.TokenKind.STRING {
+        return Expr{kind=.STRING, op=t.Val, type="Str"}
+    } else if t.Kind == tokenizer.TokenKind.TRUE || t.Kind == tokenizer.TokenKind.FALSE {
+        return Expr{kind=.ATOM, op=t.Val}
     }
     return Expr{}
 }
@@ -163,14 +171,14 @@ parse_def :: proc(parser: ^Parser) {
     for {
         append(&rule.head, parse_expr(parser))
         t := _peek(parser)
-        if t.kind != .COMMA { break }
+        if t.Kind != tokenizer.TokenKind.COMMA { break }
         _ = _next(parser)
     }
-    assert( _next(parser).kind == .COLON )
+    assert( _next(parser).Kind == tokenizer.TokenKind.COLON )
     for {
         append(&rule.body, parse_expr(parser))
         t := _peek(parser)
-        if t.kind != .COMMA { break }
+        if t.Kind != tokenizer.TokenKind.COMMA { break }
         _ = _next(parser)
     }
     append(&parser.rules, rule)

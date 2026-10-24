@@ -1,4 +1,4 @@
-package termite
+package tokenizer
 
 import "core:fmt"
 import "core:io"
