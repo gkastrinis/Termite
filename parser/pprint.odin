@@ -47,19 +47,19 @@ print_program :: proc(parser: ^Parser) {
 
 print_expr :: proc(e: Expr) {
     if e.kind == .INT {
-        fmt.printf("\x1b[36m%v\x1b[30m:%v\x1b[0m", e.op, e.type)
+        fmt.printf("\x1b[32m%v\x1b[30m:%v\x1b[0m", e.op, e.type)
     } else if e.kind == .STRING {
-        fmt.printf("\x1b[36m\"%v\"\x1b[30m:%v\x1b[0m", e.op, e.type)
+        fmt.printf("\x1b[32m\"%v\"\x1b[30m:%v\x1b[0m", e.op, e.type)
     } else if e.kind == .VAR {
-        fmt.printf("%v\x1b[30m:%v\x1b[0m", e.op, e.type)
+        fmt.printf("\x1b[33m%v\x1b[30m:%v\x1b[0m", e.op, e.type)
     } else if e.kind == .COMPOUND {
+        fmt.print("(")
         assert( len(e.args) == 2 )
         print_expr(e.args[0])
         fmt.printf(" %v ", e.op)
         print_expr(e.args[1])
+        fmt.print(")")
     }
-
-
     // if e.kind == .ATOM {
     //     fmt.printf("\x1b[32m%v\x1b[0m(", e.op)
     //     for i in 0..<len(e.args) {

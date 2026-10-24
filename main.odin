@@ -2,15 +2,19 @@ package termite
 
 import "core:fmt"
 import "core:os"
+import tokenizer "./tokenizer"
 import parser "./parser"
 
 main :: proc() {
     parser_ := parser.init(os.to_stream(os.stdin))
+    for {
+        e := parser.parse_expr(&parser_)
+        parser.print_expr(e)
+        if parser._peek(&parser_).Kind == tokenizer.TokenKind.EOF { break }
+        fmt.println()
+    }
+
     // parser.parse(&parser_)
-    e := parser.parse_expr(&parser_)
-    fmt.println()
-    fmt.println(e)
-    parser.print_expr(e)
     // parser.print_program(&parser_)
     // fmt.println("----------------------------")
     // fmt.printf("\x1b[30m30\x1b[0m\n")
@@ -19,7 +23,6 @@ main :: proc() {
     // fmt.printf("\x1b[33m33\x1b[0m\n")
     // fmt.printf("\x1b[34m34\x1b[0m\n")
     // fmt.printf("\x1b[35m35\x1b[0m\n")
-    // fmt.printf("\x1b[36m36\x1b[0m\n")
     // fmt.printf("\x1b[40m40\x1b[0m\n")
     // fmt.printf("\x1b[41m41\x1b[0m\n")
     // fmt.println()

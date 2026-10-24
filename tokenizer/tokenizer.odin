@@ -115,34 +115,34 @@ test :: proc(tok: ^Tokenizer) -> string {
 
 ///////////////////////////////////////////////////////////////
 
-@(private)
+@private
 is_white :: proc(r: rune) -> bool {
     return r == ' ' || r == '\t' || r == '\t' || r == '\n'
 }
 
-@(private)
+@private
 is_boundary :: proc(r: rune) -> bool {
     return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' ||
             r == '.' || r == '=' || r == '!' || r == '+' || r == '-' ||
             r == '*' || r == '/' || r == '%' || r == '^' || is_white(r)
 }
 
-@(private)
+@private
 is_id_start :: proc(r: rune) -> bool {
     return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
 }
 
-@(private)
+@private
 is_num :: proc(r: rune) -> bool {
     return r >= '0' && r <= '9'
 }
 
-@(private)
+@private
 is_id_main :: proc(r: rune) -> bool {
     return is_id_start(r) || is_num(r)
 }
 
-@(private)
+@private
 is_id_like :: proc(s: tokenizerState) -> bool {
     return s == .D || s == .DE || s == .DEF || s == .DEC || s == .DECL ||
         s == .T || s == .TR || s == .TRU || s == .TRUE ||
@@ -150,7 +150,7 @@ is_id_like :: proc(s: tokenizerState) -> bool {
         s == .ID
 }
 
-@(private)
+@private
 read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
     if tok.ahead != '\x00' {
         r := tok.ahead
@@ -162,13 +162,13 @@ read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
     }
 }
 
-@(private)
+@private
 unread_rune :: proc(tok: ^Tokenizer, r: rune) {
     assert( tok.ahead == '\x00' )
     tok.ahead = r
 }
 
-@(private)
+@private
 to_new_state :: proc(tok: ^Tokenizer, new_state: tokenizerState, r: rune) {
     tok.s = new_state
     append(&tok.buffer, r)
@@ -176,7 +176,7 @@ to_new_state :: proc(tok: ^Tokenizer, new_state: tokenizerState, r: rune) {
 
 ///////////////////////////////////////////////////////////////
 
-@(private)
+@private
 on_slash :: proc(tok: ^Tokenizer) {
     r, err := read_rune(tok)
     if err != nil {
@@ -199,7 +199,7 @@ on_slash :: proc(tok: ^Tokenizer) {
     }
 }
 
-@(private)
+@private
 on_double_quote :: proc(tok: ^Tokenizer) {
     r, err := read_rune(tok)
     if err != nil {
@@ -225,7 +225,7 @@ on_double_quote :: proc(tok: ^Tokenizer) {
     }
 }
 
-@(private)
+@private
 token_found :: proc(tok: ^Tokenizer, kind: TokenKind, r: rune) -> bool {
     tok.kind = kind
     tok.s = .CLEAN
@@ -233,7 +233,7 @@ token_found :: proc(tok: ^Tokenizer, kind: TokenKind, r: rune) -> bool {
     return true
 }
 
-@(private)
+@private
 on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) -> bool {
     rr := r
     err: io.Error
@@ -304,7 +304,7 @@ on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) -> bool {
     unreachable()
 }
 
-@(private)
+@private
 on_int :: proc(tok: ^Tokenizer, r: rune) {
     append(&tok.buffer, r)
     for {
@@ -326,7 +326,7 @@ on_int :: proc(tok: ^Tokenizer, r: rune) {
     }
 }
 
-@(private)
+@private
 on_boundary :: proc(tok: ^Tokenizer, r: rune) {
     if r == '(' {
         tok.kind = .LPAREN
