@@ -195,6 +195,7 @@ update_relations :: proc(parser: ^Parser, rule: Rule) {
 
 ///////////////////////////////////////////////////////////////
 
+// @private
 parse_expr :: proc(parser: ^Parser, min_prec: int) -> Expr {
     lhs := parse_primary(parser)
     return parse_expr_inner(parser, lhs, min_prec)

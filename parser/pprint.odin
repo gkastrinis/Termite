@@ -44,7 +44,6 @@ print_program :: proc(parser: ^Parser) {
     }
 }
 
-
 print_expr :: proc(e: Expr) {
     if e.kind == .INT {
         fmt.printf("\x1b[32m%v\x1b[30m:%v\x1b[0m", e.op, e.type)
@@ -76,4 +75,19 @@ print_expr :: proc(e: Expr) {
     //         print_expr(e.args[i])
     //     }
     //     fmt.print(")")
+}
+
+to_S_expression :: proc(e: Expr) -> string {
+    if e.kind == .INT || e.kind == .STRING || e.kind == .VAR {
+        return fmt.tprintf("%v:%v", e.op, e.type)
+    } else if e.kind == .COMPOUND {
+        sz := len(e.args)
+        if sz == 2 {
+            return fmt.tprintf("(%v %v %v)", to_S_expression(e.args[0]), e.op, to_S_expression(e.args[1]))
+        } else if sz == 1 {
+            assert( e.op == "--" )
+            return fmt.tprintf("-(%v)", to_S_expression(e.args[0]))
+        }
+    }
+    unreachable()
 }

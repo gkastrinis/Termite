@@ -10,8 +10,10 @@ main :: proc() {
     for {
         e := parser.parse_expr(&parser_, 0)
         parser.print_expr(e)
-        if parser._peek(&parser_).Kind == tokenizer.TokenKind.EOF { break }
         fmt.println()
+        s := parser.to_S_expression(e)
+        fmt.println(s)
+        if parser._peek(&parser_).Kind == tokenizer.TokenKind.EOF { break }
     }
 
     // parser.parse(&parser_)
