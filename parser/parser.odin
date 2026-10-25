@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:io"
 import tokenizer "../tokenizer"
 
+Token :: tokenizer.Token
 TKind :: tokenizer.TokenKind
 
 // 0 Expr       := EqExpr
@@ -47,7 +48,7 @@ Rule :: struct {
 Parser :: struct {
     tok: tokenizer.Tokenizer,
     has_ahead: bool,
-    ahead: tokenizer.Token,
+    ahead: Token,
 
     rules: [dynamic]Rule,
     last_rule_id: u16,
@@ -98,7 +99,7 @@ parse :: proc(parser: ^Parser) {
 ///////////////////////////////////////////////////////////////
 
 // @private
-_peek :: proc(parser: ^Parser) -> tokenizer.Token {
+_peek :: proc(parser: ^Parser) -> Token {
     if !parser.has_ahead {
         parser.ahead = _next(parser)
         parser.has_ahead = true
@@ -107,7 +108,7 @@ _peek :: proc(parser: ^Parser) -> tokenizer.Token {
 }
 
 // @private
-_next :: proc(parser: ^Parser) -> tokenizer.Token {
+_next :: proc(parser: ^Parser) -> Token {
     if parser.has_ahead {
         parser.has_ahead = false
         return parser.ahead
@@ -154,14 +155,14 @@ parse_def :: proc(parser: ^Parser) {
     parser.last_rule_id += 1
 
     for {
-        append(&rule.head, parse_expr(parser))
+        append(&rule.head, parse_expr(parser, 0))
         t := _peek(parser)
         if t.Kind != TKind.COMMA { break }
         _ = _next(parser)
     }
     assert( _next(parser).Kind == TKind.COLON )
     for {
-        append(&rule.body, parse_expr(parser))
+        append(&rule.body, parse_expr(parser, 0))
         t := _peek(parser)
         if t.Kind != TKind.COMMA { break }
         _ = _next(parser)
@@ -194,17 +195,28 @@ update_relations :: proc(parser: ^Parser, rule: Rule) {
 
 ///////////////////////////////////////////////////////////////
 
+parse_expr :: proc(parser: ^Parser, min_prec: int) -> Expr {
+    lhs := parse_primary(parser)
+    return parse_expr_inner(parser, lhs, min_prec)
+}
+
 @private
 parse_primary :: proc(parser: ^Parser) -> Expr {
     t := _next(parser)
-    if t.Kind == TKind.INT {
+    if t.Kind == TKind.MINUS {
+        // The precedence level of the unary minus
+        base := parse_expr(parser, 4)
+        e := Expr{kind=.COMPOUND, op="--", type=T_ANY}
+        append(&e.args, base)
+        return e
+    } else if t.Kind == TKind.INT {
         return Expr{kind=.INT, op=t.Val, type=T_INT}
     } else if t.Kind == TKind.STRING {
         return Expr{kind=.STRING, op=t.Val, type=T_STR}
     } else if t.Kind == TKind.ID {
         return Expr{kind=.VAR, op=t.Val, type=T_ANY}
     } else if t.Kind == TKind.LPAREN {
-        e := parse_expr(parser)
+        e := parse_expr(parser, 0)
         assert( _peek(parser).Kind == TKind.RPAREN )
         _next(parser)
         return e
@@ -212,65 +224,61 @@ parse_primary :: proc(parser: ^Parser) -> Expr {
     unreachable()
 }
 
-parse_expr :: proc(parser: ^Parser) -> Expr {
-    lhs := parse_primary(parser)
-    return parse_expr_inner(parser, lhs, 0)
-}
-
 // Precedence climbing method
 @private
-parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr{
-    t := _peek(parser)
+parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
     lhs := lhs_
+    non_assoc_found := false
+    ahead := _peek(parser)
     for {
-        if t.Kind == TKind.EOF { return lhs }
-        prec := op_to_precedence(t)
-        if !(prec >= min_prec) { return lhs }
+        ahead_prec := precedence(ahead)
+        if !((is_non_assoc(ahead) && ahead_prec > min_prec) || ahead_prec >= min_prec ) {
+            return lhs
+        }
+        if non_assoc_found { return lhs }
+        if is_non_assoc(ahead) { non_assoc_found = true }
 
         op := _next(parser)
         rhs := parse_primary(parser)
-        t = _peek(parser)
+        ahead = _peek(parser)
         for {
-            op_prec := op_to_precedence(op)
-            t_prec := op_to_precedence(t)
-            if !(t_prec > op_prec) { break }
-            if !(is_right_assoc(t) && t_prec == op_prec) { break }
-            new_prec := op_prec + (t_prec > op_prec ? 1 : 0)
+            op_prec := precedence(op)
+            ahead_prec = precedence(ahead)
+            if !((is_right_assoc(ahead) && ahead_prec == op_prec) || ahead_prec > op_prec) {
+                break
+            }
+            new_prec := op_prec + (ahead_prec > op_prec ? 1 : 0)
             rhs = parse_expr_inner(parser, rhs, new_prec)
-            t = _peek(parser)
+            ahead = _peek(parser)
         }
-        args := make([dynamic]Expr)
-        old_lhs := lhs
-        lhs = Expr{kind=.COMPOUND, op=op.Val}
-        append(&lhs.args, old_lhs)
-        append(&lhs.args, rhs)
+        lhs = make_bin_expr(op, lhs, rhs)
     }
     return lhs
 }
-// 0 Expr       := EqExpr
-// 1 EqExpr     := AddExpr (("=" | "!=") AddExpr)?
-// 2 AddExpr    := MultExpr (("+" | "-") MultExpr)*
-// 3 MultExpr   := UnaryExpr (("*" | "/" | "%") UnaryExpr)*
-// 4 UnaryExpr  := ("+" | "-") UnaryExpr
-//              | ExpExpr
-// 5 ExpExpr    := Primary ("^" UnaryExpr)?
-// 6 Primary    := "(" Expr ")"
-//              | Literal
-//              | Variable
 
 @private
-is_right_assoc :: proc(t: tokenizer.Token) -> bool {
+make_bin_expr :: proc(op: Token, lhs: Expr, rhs: Expr) -> Expr {
+    e := Expr{kind=.COMPOUND, op=op.Val}
+    append(&e.args, lhs)
+    append(&e.args, rhs)
+    return e
+}
+
+@private
+is_non_assoc :: proc(t: Token) -> bool {
+    return t.Kind == TKind.EQ || t.Kind == TKind.NEQ
+}
+
+@private
+is_right_assoc :: proc(t: Token) -> bool {
     return t.Kind == TKind.POW
 }
 
 @private
-op_to_precedence :: proc(t: tokenizer.Token) -> int {
+precedence :: proc(t: Token) -> int {
     if t.Kind == TKind.EQ || t.Kind == TKind.NEQ { return 1 }
     if t.Kind == TKind.PLUS || t.Kind == TKind.MINUS { return 2 }
-    if t.Kind == TKind.MULT || t.Kind == TKind.DIV { return 3 }
-    if t.Kind == TKind.MOD { return 3 }
-
+    if t.Kind == TKind.MULT || t.Kind == TKind.DIV || t.Kind == TKind.MOD { return 3 }
     if t.Kind == TKind.POW { return 5 }
     return -100
-    // unreachable()
 }

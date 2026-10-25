@@ -8,7 +8,7 @@ import parser "./parser"
 main :: proc() {
     parser_ := parser.init(os.to_stream(os.stdin))
     for {
-        e := parser.parse_expr(&parser_)
+        e := parser.parse_expr(&parser_, 0)
         parser.print_expr(e)
         if parser._peek(&parser_).Kind == tokenizer.TokenKind.EOF { break }
         fmt.println()

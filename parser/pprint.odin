@@ -53,12 +53,21 @@ print_expr :: proc(e: Expr) {
     } else if e.kind == .VAR {
         fmt.printf("\x1b[33m%v\x1b[30m:%v\x1b[0m", e.op, e.type)
     } else if e.kind == .COMPOUND {
-        fmt.print("(")
-        assert( len(e.args) == 2 )
-        print_expr(e.args[0])
-        fmt.printf(" %v ", e.op)
-        print_expr(e.args[1])
-        fmt.print(")")
+        sz := len(e.args)
+        if sz == 2 {
+            fmt.print("(")
+            print_expr(e.args[0])
+            fmt.printf(" %v ", e.op)
+            print_expr(e.args[1])
+            fmt.print(")")
+        } else if sz == 1 {
+            assert( e.op == "--" )
+            fmt.print("-(")
+            print_expr(e.args[0])
+            fmt.print(")")
+        } else {
+            unreachable()
+        }
     }
     // if e.kind == .ATOM {
     //     fmt.printf("\x1b[32m%v\x1b[0m(", e.op)
