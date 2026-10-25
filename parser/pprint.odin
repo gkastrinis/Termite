@@ -89,5 +89,7 @@ to_S_expression :: proc(e: Expr) -> string {
             return fmt.tprintf("-(%v)", to_S_expression(e.args[0]))
         }
     }
-    unreachable()
+    // unreachable()
+    return e.op
+    // return "????"
 }

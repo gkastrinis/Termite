@@ -5,7 +5,7 @@ import "core:os"
 import tokenizer ".."
 
 @(test)
-my_test :: proc(t: ^testing.T) {
+test_tokens :: proc(t: ^testing.T) {
     expected, err1 := os.read_entire_file_from_path(
         "tests/f1.tr.exp",
         context.allocator,
