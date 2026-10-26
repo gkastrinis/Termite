@@ -1,10 +1,11 @@
 package parser
 
-import "core:io"
 import "core:fmt"
-import "core:strings"
+import "core:io"
 import "core:mem"
 import vmem "core:mem/virtual"
+import "core:strings"
+
 import tokenizer "../tokenizer"
 
 Token :: tokenizer.Token
@@ -52,6 +53,8 @@ T_STR :: "Str"
 T_ANY :: "Any"
 
 Parser :: struct {
+    allocator: mem.Allocator,
+
     tok: tokenizer.Tokenizer,
     has_ahead: bool,
     ahead: Token,
@@ -60,34 +63,16 @@ Parser :: struct {
     // inferred: map[string]Relation,
     // rules: [dynamic]Rule,
     // last_rule_id: u16,
-
-    arena: vmem.Arena,
-    allocator: mem.Allocator,
 }
 
-init :: proc(stream: io.Stream) -> ^Parser {
-    p := new(Parser)
-    p.tok = tokenizer.init(stream)
-    p.has_ahead = false
-    // p := Parser{
-    //     tok= tokenizer.init(stream),
-    //     has_ahead= false,
-    //     // declared= make(map[string]Relation),
-    //     // inferred= make(map[string]Relation),
-    // }
-    err := vmem.arena_init_growing(&p.arena)
-    assert(err == nil)
-    p.allocator = vmem.arena_allocator(&p.arena)
-    return p
-}
-
-destroy :: proc(parser: ^Parser) {
-    vmem.arena_destroy(&parser.arena)
-    // delete(parser.inferred)
-    // delete(parser.declared)
-    // delete(parser.rules)
-    tokenizer.destroy(&parser.tok)
-    free(parser)
+init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
+    return Parser {
+        allocator = allocator,
+        tok = tokenizer.init(stream, allocator),
+        has_ahead = false,
+    }
+    //     // declared = make(map[string]Relation),
+    //     // inferred = make(map[string]Relation),
 }
 
 // parse :: proc(parser: ^Parser) {
@@ -135,7 +120,7 @@ _next :: proc(parser: ^Parser) -> Token {
 //
 //     assert(!(t.Val in parser.declared))
 //
-//     rel := Relation{name=t.Val, arity=0}
+//     rel := Relation{name = t.Val, arity = 0}
 //
 //     t = _next(parser)
 //     assert( t.Kind == TK.LPAREN )
@@ -164,7 +149,7 @@ _next :: proc(parser: ^Parser) -> Token {
 // }
 //
 // parse_def :: proc(parser: ^Parser) {
-//     rule := Rule{id=parser.last_rule_id}
+//     rule := Rule{id = parser.last_rule_id}
 //     parser.last_rule_id += 1
 //
 //     for {
@@ -195,7 +180,7 @@ _next :: proc(parser: ^Parser) -> Token {
 //             rel := parser.inferred[e.op]
 //             assert( rel.arity == u8(len(e.args)) )
 //         } else {
-//             rel := Relation{name=e.op, arity=u8(len(e.args))}
+//             rel := Relation{name = e.op, arity = u8(len(e.args))}
 //             for i in 0..<rel.arity {
 //                 append(&rel.fields, "?")
 //                 append(&rel.types, T_ANY)
@@ -226,13 +211,13 @@ parse_primary :: proc(parser: ^Parser) -> ^Expr {
     if t.Kind == TK.MINUS {
         // The precedence level of the unary minus
         base := parse_expr(parser, 4)
-        return alloc_expr(parser, Expr{kind=.UNARY, op="--", lhs=base})
+        return alloc_expr(parser, Expr{kind = .UNARY, op = "--", lhs = base})
     } else if t.Kind == TK.INT {
-        return alloc_expr(parser, Expr{kind=.INT, op=t.Val})
+        return alloc_expr(parser, Expr{kind = .INT, op = t.Val})
     } else if t.Kind == TK.STRING {
-        return alloc_expr(parser, Expr{kind=.STRING, op=t.Val})
+        return alloc_expr(parser, Expr{kind = .STRING, op = t.Val})
     } else if t.Kind == TK.ID {
-        return alloc_expr(parser, Expr{kind=.VAR, op=t.Val})
+        return alloc_expr(parser, Expr{kind = .VAR, op = t.Val})
     } else if t.Kind == TK.LPAREN {
         e := parse_expr(parser, 0)
         assert( _peek(parser).Kind == TK.RPAREN )
@@ -269,18 +254,10 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: ^Expr, min_prec: int) -> ^Expr {
             rhs = parse_expr_inner(parser, rhs, new_prec)
             ahead = _peek(parser)
         }
-        lhs = alloc_expr(parser, Expr{kind=.BINARY, op=op.Val, lhs=lhs, rhs=rhs})
+        lhs = alloc_expr(parser, Expr{kind = .BINARY, op = op.Val, lhs = lhs, rhs = rhs})
     }
     return lhs
 }
-
-// @private
-// make_bin_expr :: proc(op: Token, lhs: ^Expr, rhs: ^Expr) -> Expr {
-//     e := Expr{kind=.COMPOUND, op=op.Val}
-//     append(&e.args, lhs)
-//     append(&e.args, rhs)
-//     return e
-// }
 
 @private
 is_non_assoc :: proc(t: Token) -> bool {
@@ -304,12 +281,17 @@ precedence :: proc(t: Token) -> int {
 ///////////////////////////////////////////////////////////////
 
 main :: proc() {
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
     input := "a + b"
-    reader := strings.Reader{s=input}
+    reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
-    parser_ := init(stream)
-    defer destroy(parser_)
-    e := parse_expr(parser_, 0)
-    actual := to_S_expression(e)
-    fmt.println(actual)
+
+    parser_ := init(stream, allocator)
+    e := parse_expr(&parser_, 0)
+    fmt.println(to_S_expression(e))
 }

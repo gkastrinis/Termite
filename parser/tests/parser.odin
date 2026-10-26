@@ -1,13 +1,21 @@
 package tests
 
-import "core:testing"
+import "core:mem"
+import vmem "core:mem/virtual"
 import "core:strings"
+import "core:testing"
+
 import parser ".."
 
 @(test)
 test_expressions :: proc(t: ^testing.T) {
-    inputs := make(map[string]string)
-    defer delete(inputs)
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
+    inputs := make(map[string]string, allocator)
 
     inputs["truexyz + 113 * (1 - 1234)\n"] =
         "(truexyz + (113 * (1 - 1234)))"
@@ -47,11 +55,11 @@ test_expressions :: proc(t: ^testing.T) {
         "(a ^ -(b))"
 
     for input, expected in inputs {
-        reader := strings.Reader{s=input}
+        reader := strings.Reader{s = input}
         stream := strings.reader_to_stream(&reader)
-        parser_ := parser.init(stream)
-        defer parser.destroy(parser_)
-        e := parser.parse_expr(parser_, 0)
+
+        parser_ := parser.init(stream, allocator)
+        e := parser.parse_expr(&parser_, 0)
         actual := parser.to_S_expression(e)
         testing.expect_value(t, actual, expected)
     }

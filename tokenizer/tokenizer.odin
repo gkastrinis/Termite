@@ -2,9 +2,11 @@ package tokenizer
 
 import "core:fmt"
 import "core:io"
+import "core:mem"
+import vmem "core:mem/virtual"
 import "core:os"
-import "core:unicode/utf8"
 import "core:strings"
+import "core:unicode/utf8"
 
 // NOTE: Keywords
 // def, decl, true, false
@@ -44,21 +46,22 @@ tokenizerState :: enum {
 
 Tokenizer :: struct {
     stream: io.Stream,
-    ahead: rune,
-    ahead_err: io.Error,
+    allocator: mem.Allocator,
 
     s: tokenizerState,
-
-    kind: TokenKind,
+    ahead: rune,
     buffer: [dynamic]rune,
+    kind: TokenKind,
 }
 
-init :: proc(stream: io.Stream) -> Tokenizer {
-    return Tokenizer{stream=stream, s=tokenizerState.CLEAN}
-}
-
-destroy :: proc(tok: ^Tokenizer) {
-    delete(tok.buffer)
+init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
+    buffer := make([dynamic]rune, 0, 64, allocator)
+    return Tokenizer{
+        stream = stream,
+        allocator = allocator,
+        s = tokenizerState.CLEAN,
+        buffer = buffer,
+    }
 }
 
 next_token :: proc(tok: ^Tokenizer) -> Token {
@@ -93,23 +96,23 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
         }
     }
     assert( tok.s == .CLEAN )
-    str, _ := utf8.runes_to_string(tok.buffer[:])
+    str, _ := utf8.runes_to_string(tok.buffer[:], tok.allocator)
     clear(&tok.buffer)
     return Token{tok.kind, str}
 }
 
 ///////////////////////////////////////////////////////////////
 
-to_string :: proc(tok: ^Tokenizer) -> string {
+tokenize_input :: proc(tok: ^Tokenizer) -> string {
     builder: strings.Builder
-    defer strings.builder_destroy(&builder)
+    _, err := strings.builder_init(&builder, tok.allocator)
+    assert(err == nil)
     for {
         t := next_token(tok)
-        defer delete(t.Val)
         if t.Kind == .EOF { break }
         strings.write_string(&builder, fmt.tprintf("%v:%v||", t.Kind, t.Val))
     }
-    return strings.clone(strings.to_string(builder))
+    return strings.to_string(builder)
 }
 
 ///////////////////////////////////////////////////////////////
@@ -365,10 +368,15 @@ on_boundary :: proc(tok: ^Tokenizer, r: rune) {
 ///////////////////////////////////////////////////////////////
 
 main :: proc() {
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
     input := `false123`
-    reader := strings.Reader{s=input}
+    reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
-    tok := init(stream)
-    actual := to_string(&tok)
-    fmt.println(actual)
+    tok := init(stream, allocator)
+    fmt.println(tokenize_input(&tok))
 }

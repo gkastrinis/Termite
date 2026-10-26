@@ -1,13 +1,21 @@
 package tests
 
-import "core:testing"
+import "core:mem"
+import vmem "core:mem/virtual"
 import "core:strings"
+import "core:testing"
+
 import tokenizer ".."
 
 @(test)
 test_tokens :: proc(t: ^testing.T) {
-    inputs := make(map[string]string)
-    defer delete(inputs)
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
+    inputs := make(map[string]string, allocator)
 
     inputs[`// hello world 1+2/3`] = ""
     inputs[`/`] = "DIV:/||"
@@ -33,12 +41,10 @@ x y 123 x123`] = `ID:x||ID:y||INT:123||ID:x123||`
     inputs[``] = ""
 
     for input, expected in inputs {
-        reader := strings.Reader{s=input}
+        reader := strings.Reader{s = input}
         stream := strings.reader_to_stream(&reader)
-        tok := tokenizer.init(stream)
-        defer tokenizer.destroy(&tok)
-        actual := tokenizer.to_string(&tok)
+        tok := tokenizer.init(stream, allocator)
+        actual := tokenizer.tokenize_input(&tok)
         testing.expect_value(t, actual, expected)
-        delete(actual)
     }
 }

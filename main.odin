@@ -2,8 +2,8 @@ package termite
 
 import "core:fmt"
 import "core:os"
-import tokenizer "./tokenizer"
 import parser "./parser"
+import tokenizer "./tokenizer"
 
 main :: proc() {
     // parser.parse(&parser_)
@@ -28,7 +28,6 @@ main :: proc() {
 // type_inference :: proc(parser: ^Parser) {
 //     IntSet :: map[u16]Void
 //     rel_to_rules := make(map[string]IntSet)
-//     defer delete(rel_to_rules)
 //
 //     for rule in parser.rules {
 //         for e in rule.head {
