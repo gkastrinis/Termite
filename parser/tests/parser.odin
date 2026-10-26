@@ -1,58 +1,57 @@
 package tests
 
 import "core:testing"
-import "core:os"
 import "core:strings"
-import "core:fmt"
 import parser ".."
 
 @(test)
 test_expressions :: proc(t: ^testing.T) {
     inputs := make(map[string]string)
+    defer delete(inputs)
+
     inputs["truexyz + 113 * (1 - 1234)\n"] =
-        "(truexyz:Any + (113:Int64 * (1:Int64 - 1234:Int64)))"
+        "(truexyz + (113 * (1 - 1234)))"
     inputs["truexyz + 113 * 1 - 1234\n"] =
-        "((truexyz:Any + (113:Int64 * 1:Int64)) - 1234:Int64)"
+        "((truexyz + (113 * 1)) - 1234)"
     inputs["defa + decla * falsea\n"] =
-        "(defa:Any + (decla:Any * falsea:Any))"
+        "(defa + (decla * falsea))"
     inputs["x % 2 ^ 123 - 3\n"] =
-        "((x:Any % (2:Int64 ^ 123:Int64)) - 3:Int64)"
+        "((x % (2 ^ 123)) - 3)"
     inputs["x ^ 2 ^ 10"] =
-        "(x:Any ^ (2:Int64 ^ 10:Int64))"
+        "(x ^ (2 ^ 10))"
     inputs["a - b - c"] =
-        "((a:Any - b:Any) - c:Any)"
+        "((a - b) - c)"
     inputs["a / b * c"] =
-        "((a:Any / b:Any) * c:Any)"
+        "((a / b) * c)"
     inputs["a ^ b ^ c"] =
-        "(a:Any ^ (b:Any ^ c:Any))"
+        "(a ^ (b ^ c))"
     inputs["a + b % c"] =
-        "(a:Any + (b:Any % c:Any))"
+        "(a + (b % c))"
     inputs["a + b % c ^ d % e + f"] =
-        "((a:Any + ((b:Any % (c:Any ^ d:Any)) % e:Any)) + f:Any)"
-    inputs["-a ^ b"] =
-        "-(a:Any ^ b:Any)"
-    inputs["a ^ -b"] =
-        "(a:Any ^ -(b:Any))"
+        "((a + ((b % (c ^ d)) % e)) + f)"
     inputs["a + 1 = b / 2"] =
-        "((a:Any + 1:Int64) = (b:Any / 2:Int64))"
+        "((a + 1) = (b / 2))"
     inputs["a = b"] =
-        "(a:Any = b:Any)"
+        "(a = b)"
     inputs["a + 1 = c + d"] =
-        "((a:Any + 1:Int64) = (c:Any + d:Any))"
+        "((a + 1) = (c + d))"
     inputs["a + -2 = c"] =
-        "((a:Any + -(2:Int64)) = c:Any)"
+        "((a + -(2)) = c)"
     inputs["a + ----b = c"] =
-        "((a:Any + -(-(-(-(b:Any))))) = c:Any)"
+        "((a + -(-(-(-(b))))) = c)"
     inputs["a-b-c"] =
-        "((a:Any - b:Any) - c:Any)"
+        "((a - b) - c)"
+    inputs["-a ^ b"] =
+        "-((a ^ b))"
+    inputs["a ^ -b"] =
+        "(a ^ -(b))"
 
     for input, expected in inputs {
-        fmt.eprintf("Running: %s vs %s\n", input, expected)
-        reader := strings.Reader{s=input,}
+        reader := strings.Reader{s=input}
         stream := strings.reader_to_stream(&reader)
         parser_ := parser.init(stream)
-        defer parser.destroy(&parser_)
-        e := parser.parse_expr(&parser_, 0)
+        defer parser.destroy(parser_)
+        e := parser.parse_expr(parser_, 0)
         actual := parser.to_S_expression(e)
         testing.expect_value(t, actual, expected)
     }

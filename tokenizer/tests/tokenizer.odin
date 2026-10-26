@@ -1,7 +1,6 @@
 package tests
 
 import "core:testing"
-import "core:os"
 import "core:strings"
 import tokenizer ".."
 

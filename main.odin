@@ -6,16 +6,6 @@ import tokenizer "./tokenizer"
 import parser "./parser"
 
 main :: proc() {
-    parser_ := parser.init(os.to_stream(os.stdin))
-    for {
-        e := parser.parse_expr(&parser_, 0)
-        // parser.print_expr(e)
-        // fmt.println()
-        s := parser.to_S_expression(e)
-        fmt.println(s)
-        if parser._peek(&parser_).Kind == tokenizer.TokenKind.EOF { break }
-    }
-
     // parser.parse(&parser_)
     // parser.print_program(&parser_)
     // fmt.println("----------------------------")

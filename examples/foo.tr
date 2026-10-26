@@ -23,6 +23,7 @@ def parent("Alice B", "Bo\"b C"): true
 
 def foo(1, 2): true
 
+	def foo(x, y): {(x=1, y=2); (x=2, y=3)}
 //def foo (x, y): {(1, 2), (2, 3)}
 
 // foo = (x, y): {(1, 2), (2, 3)}

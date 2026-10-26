@@ -1,7 +1,0 @@
-
-def ancestor(x, y), grandparent(x, z, y):
-    ancestor(x, z),
-    z = "john",
-    parent (z, y),
-    y != z
-
