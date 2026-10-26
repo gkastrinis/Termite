@@ -8,10 +8,10 @@ more tightly.
 | Precedence | Rule |
 | ---: | --- |
 | 0 | `Expr = EqExpr` |
-| 1 | `EqExpr = AddExpr, [ ("=" | "!="), AddExpr ]` |
-| 2 | `AddExpr = MultExpr, { ("+" | "-"), MultExpr }` |
-| 3 | `MultExpr = UnaryExpr, { ("*" | "/" | "%"), UnaryExpr }` |
-| 4 | `UnaryExpr = ("+" | "-"), UnaryExpr \| ExpExpr` |
+| 1 | `EqExpr = AddExpr, [ ("=" \| "!="), AddExpr ]` |
+| 2 | `AddExpr = MultExpr, { ("+" \| "-"), MultExpr }` |
+| 3 | `MultExpr = UnaryExpr, { ("*" \| "/" \| "%"), UnaryExpr }` |
+| 4 | `UnaryExpr = ("+" \| "-"), UnaryExpr \| ExpExpr` |
 | 5 | `ExpExpr = Primary, [ "^", UnaryExpr ]` |
 | 6 | `Primary = "(", Expr, ")" \| Literal \| Variable` |
 
