@@ -98,17 +98,14 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
     return Token{k, str}
 }
 
-test :: proc(tok: ^Tokenizer) -> string {
+to_string :: proc(tok: ^Tokenizer) -> string {
     builder: strings.Builder
     defer strings.builder_destroy(&builder)
     for {
         t := next_token(tok)
         defer delete(t.Val)
         if t.Kind == .EOF { break }
-        strings.write_string(&builder, fmt.tprintf("%v", t.Kind))
-        strings.write_string(&builder, ":")
-        strings.write_string(&builder, t.Val)
-        strings.write_string(&builder, "\n")
+        strings.write_string(&builder, fmt.tprintf("%v:%v||", t.Kind, t.Val))
     }
     return strings.clone(strings.to_string(builder))
 }
