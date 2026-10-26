@@ -2,10 +2,31 @@ package termite
 
 import "core:fmt"
 import "core:os"
+import vmem "core:mem/virtual"
+import "core:strings"
+
 import parser "./parser"
 import tokenizer "./tokenizer"
 
 main :: proc() {
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
+    input := `false def defa`
+    reader := strings.Reader{s = input}
+    stream := strings.reader_to_stream(&reader)
+    tok := tokenizer.init(stream, allocator)
+    for {
+        t := tokenizer.next_token(&tok)
+        fmt.println(t)
+        if t.Kind == .EOF || t.Kind == .ERROR { break }
+    }
+}
+
+// main :: proc() {
     // parser.parse(&parser_)
     // parser.print_program(&parser_)
     // fmt.println("----------------------------")
@@ -21,7 +42,7 @@ main :: proc() {
     // type_inference(&parser)
     // fmt.println("----------------------------")
     // print_program(&parser)
-}
+// }
 
 // Void :: struct{}
 //

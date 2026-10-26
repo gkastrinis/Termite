@@ -1,11 +1,25 @@
 package tests
 
+import "core:fmt"
 import "core:mem"
 import vmem "core:mem/virtual"
 import "core:strings"
 import "core:testing"
 
 import tokenizer ".."
+
+tokenize_input :: proc(tok: ^tokenizer.Tokenizer) -> string {
+    builder: strings.Builder
+    _, err := strings.builder_init(&builder, tok.allocator)
+    assert(err == nil)
+    for {
+        t := tokenizer.next_token(tok)
+        if t.Kind == .EOF { break }
+        strings.write_string(&builder, fmt.tprintf("%v:%v||", t.Kind, t.Val))
+        if t.Kind == .ERROR { break }
+    }
+    return strings.to_string(builder)
+}
 
 @(test)
 test_tokens :: proc(t: ^testing.T) {
@@ -35,16 +49,23 @@ x y 123 x123`] = `ID:x||ID:y||INT:123||ID:x123||`
     inputs[`1/2//noooo`] = "INT:1||DIV:/||INT:2||"
     inputs[`1+2-3*4^5%54/3//1000`] =
         "INT:1||PLUS:+||INT:2||MINUS:-||INT:3||MULT:*||INT:4||POW:^||INT:5||MOD:%||INT:54||DIV:/||INT:3||"
-    inputs[``] = ""
-    inputs[``] = ""
-    inputs[``] = ""
-    inputs[``] = ""
+    inputs[`=!=():,;+-*/%^`] = "EQ:=||NEQ:!=||LPAREN:(||RPAREN:)||COLON::||COMMA:,||SEMICOLON:;||PLUS:+||MINUS:-||MULT:*||DIV:/||MOD:%||POW:^||"
+
+    inputs[`123 456abc`] = "INT:123||ERROR:456a||"
+    inputs[`123 456$$`] = "INT:123||ERROR:456$||"
+    inputs[`123 abc$123`] = "INT:123||ERROR:abc$||"
+    inputs[`123 false$123`] = "INT:123||ERROR:false$||"
+    inputs[`"`] = "ERROR:||"
+    inputs[`"hello ther`] = "ERROR:hello ther||"
+    inputs[`"hello there\"`] = `ERROR:hello there\"||`
+    inputs[`"hello there\`] = `ERROR:hello there\||`
+    inputs[`abc!`] = "ID:abc||ERROR:!||"
 
     for input, expected in inputs {
         reader := strings.Reader{s = input}
         stream := strings.reader_to_stream(&reader)
         tok := tokenizer.init(stream, allocator)
-        actual := tokenizer.tokenize_input(&tok)
+        actual := tokenize_input(&tok)
         testing.expect_value(t, actual, expected)
     }
 }

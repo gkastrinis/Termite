@@ -1,11 +1,7 @@
 package tokenizer
 
-import "core:fmt"
 import "core:io"
 import "core:mem"
-import vmem "core:mem/virtual"
-import "core:os"
-import "core:strings"
 import "core:unicode/utf8"
 
 TokenKind :: enum {
@@ -23,22 +19,13 @@ Token :: struct {
     Val: string
 }
 
-tokenizerState :: enum {
-    CLEAN,
-    D, DE, DEF, DEC, DECL,
-    T, TR, TRU, TRUE,
-    F, FA, FAL, FALS, FALSE,
-    ID,
-}
-
 Tokenizer :: struct {
     stream: io.Stream,
     allocator: mem.Allocator,
 
-    s: tokenizerState,
     ahead: rune,
     buffer: [dynamic]rune,
-    kind: TokenKind,
+    in_error: bool
 }
 
 init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
@@ -46,74 +33,61 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
     return Tokenizer{
         stream = stream,
         allocator = allocator,
-        s = tokenizerState.CLEAN,
         buffer = buffer,
+        in_error = false,
     }
 }
 
 next_token :: proc(tok: ^Tokenizer) -> Token {
-    assert( tok.s == .CLEAN )
+    if tok.in_error { return Token{.ERROR, "PREV_ERR"} }
+
     for {
         r, err := read_rune(tok)
-        if err != nil {
-            tok.kind = .EOF
-            break
-        } else if is_whitespace(r) {
-            continue
-        } else if r == '/' {
-            if on_slash(tok) { break }
+        if err != nil { return Token{.EOF, ""} }
+        if is_whitespace(r) { continue }
+        if r == '/' && maybe_consume_comment(tok) { continue }
 
-        } else if r == '"' {
-            on_double_quote(tok)
-            break
+        if r == '"' {
+            return tok_string(tok)
+
         } else if is_num(r) {
-            on_int(tok, r)
-            break
+            return tok_number(tok, r)
+
         } else if is_id_start(r) {
-            on_id_or_kw(tok, r)
-            break
-        } else if is_boundary(r) && !is_whitespace(r) {
-            on_boundary(tok, r)
-            break
+            return tok_id_like(tok, r)
+
+        } else if is_boundary(r) {
+            return tok_boundary(tok, r)
 
         } else {
             append(&tok.buffer, r)
-            tok.kind = .ERROR
-            break
+            tok.in_error = true
+            return Token{.ERROR, buffer_to_str(tok)}
         }
     }
-    assert( tok.s == .CLEAN )
-    str, _ := utf8.runes_to_string(tok.buffer[:], tok.allocator)
-    clear(&tok.buffer)
-    return Token{tok.kind, str}
-}
-
-///////////////////////////////////////////////////////////////
-
-tokenize_input :: proc(tok: ^Tokenizer) -> string {
-    builder: strings.Builder
-    _, err := strings.builder_init(&builder, tok.allocator)
-    assert(err == nil)
-    for {
-        t := next_token(tok)
-        if t.Kind == .EOF { break }
-        strings.write_string(&builder, fmt.tprintf("%v:%v||", t.Kind, t.Val))
-    }
-    return strings.to_string(builder)
+    unreachable()
 }
 
 ///////////////////////////////////////////////////////////////
 
 @private
+buffer_to_str ::proc(tok: ^Tokenizer) -> string {
+    str, _ := utf8.runes_to_string(tok.buffer[:], tok.allocator)
+    clear(&tok.buffer)
+    return str
+}
+
+@private
 is_whitespace :: proc(r: rune) -> bool {
-    return r == ' ' || r == '\t' || r == '\t' || r == '\n'
+    return r == ' ' || r == '\t' || r == '\r' || r == '\n'
 }
 
 @private
 is_boundary :: proc(r: rune) -> bool {
     return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' ||
-            r == '.' || r == '=' || r == '!' || r == '+' || r == '-' ||
-            r == '*' || r == '/' || r == '%' || r == '^' || is_whitespace(r)
+            r == '=' || r == '!' || r == '+' || r == '-' ||
+            r == '*' || r == '/' || r == '%' || r == '^' ||
+            is_whitespace(r) || r == '\x00'
 }
 
 @private
@@ -129,14 +103,6 @@ is_num :: proc(r: rune) -> bool {
 @private
 is_id_main :: proc(r: rune) -> bool {
     return is_id_start(r) || is_num(r)
-}
-
-@private
-is_id_like :: proc(s: tokenizerState) -> bool {
-    return s == .D || s == .DE || s == .DEF || s == .DEC || s == .DECL ||
-        s == .T || s == .TR || s == .TRU || s == .TRUE ||
-        s == .F || s == .FA || s == .FAL || s == .FALS || s == .FALSE ||
-        s == .ID
 }
 
 @private
@@ -157,213 +123,129 @@ unread_rune :: proc(tok: ^Tokenizer, r: rune) {
     tok.ahead = r
 }
 
-@private
-to_new_state :: proc(tok: ^Tokenizer, new_state: tokenizerState, r: rune) {
-    tok.s = new_state
-    append(&tok.buffer, r)
-}
-
 ///////////////////////////////////////////////////////////////
 
 @private
-on_slash :: proc(tok: ^Tokenizer) -> bool {
+maybe_consume_comment :: proc(tok: ^Tokenizer) -> bool {
     r, err := read_rune(tok)
     if err != nil || r != '/' {
-        assert( len(tok.buffer) == 0 )
         unread_rune(tok, r)
-        tok.kind = .DIV
-        append(&tok.buffer, '/')
-        return true
+        return false
     }
     for {
-        if r == '\n' { break }
+        if r == '\r' || r == '\n' { break }
         r, err = read_rune(tok)
         if err != nil { break }
     }
-    return false
+    return true
 }
 
 @private
-on_double_quote :: proc(tok: ^Tokenizer) {
-    r, err := read_rune(tok)
-    if err != nil {
-        tok.kind = .ERROR
-        return
-    }
+tok_string :: proc(tok: ^Tokenizer) -> Token {
+    in_backslash := false
     for {
-        if r == '"' {
-            tok.kind = .STRING
-            tok.s = .CLEAN
-            return
+        r, err := read_rune(tok)
+        if err != nil {
+            tok.in_error = true
+            return Token{.ERROR, buffer_to_str(tok)}
+        } else if in_backslash {
+            in_backslash = false
         } else if r == '\\' {
-            append(&tok.buffer, r)
-            r, err = read_rune(tok)
+            in_backslash = true
+        } else if r == '"' {
+            return Token{.STRING, buffer_to_str(tok)}
         }
         append(&tok.buffer, r)
-
-        r, err = read_rune(tok)
-        if err != nil {
-            tok.kind = .ERROR
-            return
-        }
     }
 }
 
 @private
-on_int :: proc(tok: ^Tokenizer, r: rune) {
+tok_number :: proc(tok: ^Tokenizer, r: rune) -> Token {
     append(&tok.buffer, r)
     for {
         rr, err := read_rune(tok)
-        if err != nil || is_boundary(rr) {
-            tok.kind = .INT
-            tok.s = .CLEAN
-            unread_rune(tok, rr)
-            return
-        } else if is_num(rr) {
-            append(&tok.buffer, rr)
-            continue
-        }
-        tok.kind = .ERROR
-        return
-    }
-}
-
-@private
-token_found :: proc(tok: ^Tokenizer, kind: TokenKind, r: rune) {
-    tok.kind = kind
-    tok.s = .CLEAN
-    if is_boundary(r) { unread_rune(tok, r) }
-}
-
-@private
-on_id_or_kw :: proc(tok: ^Tokenizer, r: rune) {
-    rr := r
-    err: io.Error
-    for {
-        // def, decl
-        if tok.s == .CLEAN && rr == 'd' {
-            to_new_state(tok, .D, rr)
-
-        } else if tok.s == .D && rr == 'e' {
-            to_new_state(tok, .DE, rr)
-        } else if tok.s == .DE && rr == 'f' {
-            to_new_state(tok, .DEF, rr)
-        } else if tok.s == .DEF {
-            if !is_id_main(rr) { token_found(tok, .DEF, rr) ; break }
-            to_new_state(tok, .ID, rr)
-
-        } else if tok.s == .DE && rr == 'c' {
-            to_new_state(tok, .DEC, rr)
-        } else if tok.s == .DEC && rr == 'l' {
-            to_new_state(tok, .DECL, rr)
-        } else if tok.s == .DECL {
-            if !is_id_main(rr) { token_found(tok, .DECL, rr) ;  break }
-            to_new_state(tok, .ID, rr)
-
-        // true
-        } else if tok.s == .CLEAN && rr == 't' {
-            to_new_state(tok, .T, rr)
-        } else if tok.s == .T && rr == 'r' {
-            to_new_state(tok, .TR, rr)
-        } else if tok.s == .TR && rr == 'u' {
-            to_new_state(tok, .TRU, rr)
-        } else if tok.s == .TRU && rr == 'e' {
-            to_new_state(tok, .TRUE, rr)
-        } else if tok.s == .TRUE {
-            if !is_id_main(rr) { token_found(tok, .TRUE, rr) ; break }
-            to_new_state(tok, .ID, rr)
-
-        // false
-        } else if tok.s == .CLEAN && rr == 'f' {
-            to_new_state(tok, .F, rr)
-        } else if tok.s == .F && rr == 'a' {
-            to_new_state(tok, .FA, rr)
-        } else if tok.s == .FA && rr == 'l' {
-            to_new_state(tok, .FAL, rr)
-        } else if tok.s == .FAL && rr == 's' {
-            to_new_state(tok, .FALS, rr)
-        } else if tok.s == .FALS && rr == 'e' {
-            to_new_state(tok, .FALSE, rr)
-        } else if tok.s == .FALSE {
-            if !is_id_main(rr) { token_found(tok, .FALSE, rr) ; break }
-            to_new_state(tok, .ID, rr)
-
-        // <id>
-        } else if tok.s == .CLEAN && is_id_start(rr) {
-            assert( len(tok.buffer) == 0 )
-            to_new_state(tok, .ID, rr)
-
-        } else if is_id_like(tok.s) {
-            if !is_id_main(rr) { token_found(tok, .ID, rr) ; break }
-            append(&tok.buffer, rr)
-        }
-
-        rr, err = read_rune(tok)
         if err != nil {
-            k: TokenKind
-            #partial switch tok.s {
-                case .DEF  : k = .DEF
-                case .DECL : k = .DECL
-                case .TRUE : k = .TRUE
-                case .FALSE: k = .FALSE
-                case       : k = .ID
-            }
-            token_found(tok, k, '\x00') ;
+            break
+
+        } else if is_boundary(rr) {
+            unread_rune(tok, rr)
+            break
+        }
+
+        append(&tok.buffer, rr)
+
+        if !is_num(rr) {
+            tok.in_error = true
             break
         }
     }
+    str := buffer_to_str(tok)
+    if tok.in_error { return Token{.ERROR, str} }
+    return Token{.INT, str}
 }
 
 @private
-on_boundary :: proc(tok: ^Tokenizer, r: rune) {
-    if r == '(' {
-        tok.kind = .LPAREN
-    } else if r == ')' {
-        tok.kind = .RPAREN
-    } else if r == ',' {
-        tok.kind = .COMMA
-    } else if r == ';' {
-        tok.kind = .SEMICOLON
-    } else if r == ':' {
-        tok.kind = .COLON
-    } else if r == '=' {
-        tok.kind = .EQ
-    } else if r == '!' {
-        r2, _ := read_rune(tok)
-        if r2 == '=' {
-            tok.kind = .NEQ
-            append(&tok.buffer, r)
-            append(&tok.buffer, r2)
-        } else {
-            unread_rune(tok, r2)
-            tok.kind = .ERROR
-        }
-    } else if r == '+' {
-        tok.kind = .PLUS
-    } else if r == '-' {
-        tok.kind = .MINUS
-    } else if r == '*' {
-        tok.kind = .MULT
-    } else if r == '%' {
-        tok.kind = .MOD
-    } else if r == '^' {
-        tok.kind = .POW
-    }
+tok_id_like :: proc(tok: ^Tokenizer, r: rune) -> Token {
     append(&tok.buffer, r)
+    for {
+        rr, err := read_rune(tok)
+        if err != nil {
+            break
+
+        } else if is_boundary(rr) {
+            unread_rune(tok, rr)
+            break
+        }
+
+        append(&tok.buffer, rr)
+
+        if !is_id_main(rr) {
+            tok.in_error = true
+            break
+        }
+    }
+    str := buffer_to_str(tok)
+    if tok.in_error { return Token{.ERROR, str} }
+    switch str {
+    case "def"  : return Token{.DEF, str}
+    case "decl" : return Token{.DECL, str}
+    case "true" : return Token{.TRUE, str}
+    case "false": return Token{.FALSE, str}
+    case        : return Token{.ID, str}
+    }
 }
 
-///////////////////////////////////////////////////////////////
-
-main :: proc() {
-    arena: vmem.Arena
-    err := vmem.arena_init_growing(&arena)
-    assert(err == nil)
-    defer vmem.arena_destroy(&arena)
-    allocator := vmem.arena_allocator(&arena)
-
-    input := `false123`
-    reader := strings.Reader{s = input}
-    stream := strings.reader_to_stream(&reader)
-    tok := init(stream, allocator)
-    fmt.println(tokenize_input(&tok))
+@private
+tok_boundary :: proc(tok: ^Tokenizer, r: rune) -> Token {
+    kind: TokenKind
+    switch r {
+    case '(': kind = .LPAREN
+    case ')': kind = .RPAREN
+    case ',': kind = .COMMA
+    case ':': kind = .COLON
+    case ';': kind = .SEMICOLON
+    case '+': kind = .PLUS
+    case '-': kind = .MINUS
+    case '*': kind = .MULT
+    case '/': kind = .DIV
+    case '%': kind = .MOD
+    case '^': kind = .POW
+    case '=': kind = .EQ
+    case '!':
+        rr, err := read_rune(tok)
+        if err != nil {
+            kind = .ERROR
+        } else if rr != '=' {
+            kind = .ERROR
+            unread_rune(tok, rr)
+        } else {
+            append(&tok.buffer, r)
+            append(&tok.buffer, rr)
+            return Token{.NEQ, buffer_to_str(tok)}
+        }
+    case : kind = .ERROR
+    }
+    if kind == .ERROR { tok.in_error = true }
+    append(&tok.buffer, r)
+    return Token{kind, buffer_to_str(tok)}
 }
