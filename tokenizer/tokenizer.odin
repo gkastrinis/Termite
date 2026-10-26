@@ -8,19 +8,6 @@ import "core:os"
 import "core:strings"
 import "core:unicode/utf8"
 
-// NOTE: Keywords
-// def, decl, true, false
-// NOTE: Tokens
-// ID, Integer, String
-// '(', ')', ',', ';', ':',
-// '=', '!=',
-// '+', '-', '*', '/', '%', '^',
-// TODO:
-// Add '_' in integers, e.g. 1_000_000
-// Add hex and octals
-// Add floats
-// Add raw strings?
-
 TokenKind :: enum {
     TRUE, FALSE, DEF, DECL,
     LPAREN, RPAREN,
