@@ -10,7 +10,7 @@ Whitespace and `//` line comments are skipped.
 | Integer | `[0-9]+` |
 | String | `"..."` (a backslash escapes the next rune) |
 | Keywords | `def`, `decl`, `true`, `false` |
-| Punctuation and operators | `(` `)` `,` `;` `:` `=` `!=` `+` `-` `*` `/` `%` `^` |
+| Punctuation and operators | `(` `)` `,` `;` `:` `=` `!=` `<` `<=` `>` `>=` `+` `-` `*` `/` `%` `^` |
 
 Keywords are recognized only when the whole identifier matches. For example,
 `false` is a keyword, while `false123` is an identifier. String token values

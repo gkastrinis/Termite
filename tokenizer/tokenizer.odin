@@ -8,7 +8,7 @@ TokenKind :: enum {
     TRUE, FALSE, DEF, DECL,
     LPAREN, RPAREN,
     COMMA, SEMICOLON, COLON,
-    EQ, NEQ,
+    EQ, NEQ, LT, LTEQ, GT, GTEQ,
     PLUS, MINUS, MULT, DIV, MOD, POW,
     ID, STRING, INT,
     ERROR, EOF,
@@ -85,8 +85,8 @@ is_whitespace :: proc(r: rune) -> bool {
 @private
 is_boundary :: proc(r: rune) -> bool {
     return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' ||
-            r == '=' || r == '!' || r == '+' || r == '-' ||
-            r == '*' || r == '/' || r == '%' || r == '^' ||
+            r == '=' || r == '!' || r == '<' || r == '>' ||
+            r == '+' || r == '-' || r == '*' || r == '/' || r == '%' || r == '^' ||
             is_whitespace(r) || r == '\x00'
 }
 
@@ -239,9 +239,27 @@ tok_boundary :: proc(tok: ^Tokenizer, r: rune) -> Token {
             kind = .ERROR
             unread_rune(tok, rr)
         } else {
-            append(&tok.buffer, r)
-            append(&tok.buffer, rr)
-            return Token{.NEQ, buffer_to_str(tok)}
+            return Token{.NEQ, "!="}
+        }
+    case '<':
+        rr, err := read_rune(tok)
+        if err != nil {
+            kind = .LT
+        } else if rr != '=' {
+            kind = .LT
+            unread_rune(tok, rr)
+        } else {
+            return Token{.LTEQ, "<="}
+        }
+    case '>':
+        rr, err := read_rune(tok)
+        if err != nil {
+            kind = .GT
+        } else if rr != '=' {
+            kind = .GT
+            unread_rune(tok, rr)
+        } else {
+            return Token{.GTEQ, ">="}
         }
     case : kind = .ERROR
     }

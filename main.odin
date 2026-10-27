@@ -2,23 +2,16 @@ package termite
 
 import "core:fmt"
 import "core:os"
-import vmem "core:mem/virtual"
 import "core:strings"
 
 import parser "./parser"
 import tokenizer "./tokenizer"
 
 main :: proc() {
-    arena: vmem.Arena
-    err := vmem.arena_init_growing(&arena)
-    assert(err == nil)
-    defer vmem.arena_destroy(&arena)
-    allocator := vmem.arena_allocator(&arena)
-
     input := `false def defa`
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
-    tok := tokenizer.init(stream, allocator)
+    tok := tokenizer.init(stream, context.allocator)
     for {
         t := tokenizer.next_token(&tok)
         fmt.println(t)
@@ -38,6 +31,22 @@ main :: proc() {
     // fmt.printf("\x1b[35m35\x1b[0m\n")
     // fmt.printf("\x1b[40m40\x1b[0m\n")
     // fmt.printf("\x1b[41m41\x1b[0m\n")
+    // fmt.printf("\x1b[30m30\x1b[0m\n")
+    // fmt.printf("\x1b[31m31\x1b[0m\n")
+    // fmt.printf("\x1b[32m32\x1b[0m\n")
+    // fmt.printf("\x1b[33m33\x1b[0m\n")
+    // fmt.printf("\x1b[34m34\x1b[0m\n")
+    // fmt.printf("\x1b[35m35\x1b[0m\n")
+    // fmt.printf("\x1b[40m40\x1b[0m\n")
+    // fmt.printf("\x1b[41m41\x1b[0m\n")
+    //
+    // fmt.print("\x1b[38;5;196mred ")
+    // fmt.print("\x1b[38;5;208morange ")
+    // fmt.print("\x1b[38;5;226myellow ")
+    // fmt.print("\x1b[38;5;46mgreen ")
+    // fmt.print("\x1b[38;5;51mblue ")
+    // fmt.print("\x1b[38;5;57mindigo ")
+    // fmt.print("\x1b[38;5;201mviolet\x1b[0m\n")
     // fmt.println()
     // type_inference(&parser)
     // fmt.println("----------------------------")

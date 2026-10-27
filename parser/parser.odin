@@ -11,35 +11,32 @@ import tokenizer "../tokenizer"
 Token :: tokenizer.Token
 TK :: tokenizer.TokenKind
 
-Relation :: struct {
-    name: string,
-    arity: u8,
-    fields: [dynamic]string,
-    types: [dynamic]string,
-}
-
-Rule :: struct {
-    id: u16,
-    head: [dynamic]Expr,
-    body: [dynamic]Expr
-}
-
 ExprKind :: enum {
+    // Logical Expressions
+    OR, AND,
+    COMPARISON,
+    // Arithmetic Expressions
     BINARY, UNARY, INT, STRING, VAR,
 }
 
 Expr :: struct {
     kind: ExprKind,
     op: string,
-    lhs: ^Expr,
-    rhs: ^Expr,
-
-    type: string,
+    args: [dynamic]Expr,
 }
 
-T_INT :: "Int64"
-T_STR :: "Str"
-T_ANY :: "Any"
+// Relation :: struct {
+//     name: string,
+//     arity: u8,
+//     fields: [dynamic]string,
+//     types: [dynamic]string,
+// }
+//
+// Rule :: struct {
+//     id: u16,
+//     head: [dynamic]Expr,
+//     body: [dynamic]Expr
+// }
 
 Parser :: struct {
     allocator: mem.Allocator,
@@ -59,13 +56,12 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
         allocator = allocator,
         tok = tokenizer.init(stream, allocator),
         has_ahead = false,
+        // declared = make(map[string]Relation),
+        // inferred = make(map[string]Relation),
     }
-    //     // declared = make(map[string]Relation),
-    //     // inferred = make(map[string]Relation),
 }
 
-// parse :: proc(parser: ^Parser) {
-//     for {
+// parse :: proc(parser: ^Parser) { for {
 //         t := _next(parser)
 //         if t.Kind == TK.EOF {
 //             fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
@@ -83,9 +79,63 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
 //     }
 // }
 
+to_S_expression :: proc(e: Expr) -> string {
+    switch e.kind {
+    case .INT, .STRING, .VAR:
+        return fmt.tprintf("%v", e.op)
+    case .BINARY:
+        assert( len(e.args) == 2 )
+        a := to_S_expression(e.args[0])
+        b := to_S_expression(e.args[1])
+        return fmt.tprintf("(%v %v %v)", a, e.op, b)
+    case .UNARY:
+        assert( len(e.args) == 1 )
+        return fmt.tprintf("-%v", to_S_expression(e.args[0]))
+    case .COMPARISON:
+        panic("Missing print case")
+    case .OR:
+        panic("Missing print case")
+    case .AND:
+        panic("Missing print case")
+    }
+    unreachable()
+}
+
+ParenColor :: enum {
+    WHITE, GREEN, MAGENTA, GREY, YELLOW, CYAN
+}
+
+COLORS := [6]string{"0", "92", "95", "30", "93", "96"}
+
+print_expr :: proc(e: Expr, color: ParenColor) {
+    switch e.kind {
+    case .INT:
+        fmt.printf("\x1b[32m%v\x1b[0m", e.op)
+    case .STRING:
+        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
+    case .VAR:
+        fmt.printf("\x1b[38;5;208m%v\x1b[0m", e.op)
+    case .BINARY, .COMPARISON, .OR, .AND:
+        fmt.printf("\x1b[%sm(\x1b[0m", COLORS[color])
+        is_first := true
+        for arg in e.args {
+            if !is_first {
+                fmt.printf(" %v ", e.op)
+            }
+            is_first = false
+            print_expr(arg, ParenColor((int(color) + 1) % 6))
+        }
+        fmt.printf("\x1b[%sm)\x1b[0m", COLORS[color])
+    case .UNARY:
+        assert( len(e.args) == 1 )
+        fmt.print("-")
+        print_expr(e.args[0], color)
+    }
+}
+
 ///////////////////////////////////////////////////////////////
 
-// @private
+@private
 _peek :: proc(parser: ^Parser) -> Token {
     if !parser.has_ahead {
         parser.ahead = _next(parser)
@@ -94,7 +144,7 @@ _peek :: proc(parser: ^Parser) -> Token {
     return parser.ahead
 }
 
-// @private
+@private
 _next :: proc(parser: ^Parser) -> Token {
     if parser.has_ahead {
         parser.has_ahead = false
@@ -102,6 +152,74 @@ _next :: proc(parser: ^Parser) -> Token {
     }
     return tokenizer.next_token(&parser.tok)
 }
+
+@private
+make_expr :: proc(
+    parser: ^Parser, kind: ExprKind, op: string, a: ^Expr = nil, b: ^Expr = nil
+) -> Expr {
+    e := Expr{kind = kind, op = op}
+    e.args = make([dynamic]Expr, 0, 8, parser.allocator)
+    if a != nil { append(&e.args, a^) }
+    if b != nil { append(&e.args, b^) }
+    return e
+}
+
+UNARY_PREC :: 6
+
+@private
+to_expr_kind :: proc(t: Token) -> ExprKind {
+    #partial switch t.Kind {
+    case TK.EQ, TK.NEQ, TK.LT, TK.LTEQ, TK.GT, TK.GTEQ:
+        return .COMPARISON
+    case TK.SEMICOLON:
+        return .OR
+    case TK.COMMA:
+        return .AND
+    case TK.PLUS, TK.MINUS, TK.MULT, TK.DIV, TK.MOD, TK.POW:
+        return .BINARY
+    case:
+        panic("Unexpected token kind")
+    }
+}
+
+@private
+is_non_assoc :: proc(t: Token) -> bool {
+    #partial switch t.Kind {
+    case TK.EQ, TK.NEQ, TK.LT, TK.LTEQ, TK.GT, TK.GTEQ:
+        return true
+    case:
+        return false
+    }
+}
+
+@private
+is_right_assoc :: proc(t: Token) -> bool {
+    return t.Kind == TK.POW
+}
+
+@private
+precedence :: proc(t: Token) -> int {
+    #partial switch t.Kind {
+    case TK.SEMICOLON:
+        return 1
+    case TK.COMMA:
+        return 2
+    case TK.EQ, TK.NEQ, TK.LT, TK.LTEQ, TK.GT, TK.GTEQ:
+        return 3
+    case TK.PLUS, TK.MINUS:
+        return 4
+    case TK.MULT, TK.DIV, TK.MOD:
+        return 5
+    // Unary minus is at 6
+    case TK.POW:
+        return 7
+    case:
+        return -42
+    }
+    unreachable()
+}
+
+///////////////////////////////////////////////////////////////
 
 // parse_decl :: proc(parser: ^Parser) -> Relation {
 //     t := _next(parser)
@@ -122,7 +240,6 @@ _next :: proc(parser: ^Parser) -> Token {
 //             continue
 //         } else if name.Kind != TK.ID {
 //             fmt.println(t)
-//             unreachable()
 //         }
 //         t = _next(parser)
 //         assert( t.Kind == TK.COLON )
@@ -145,14 +262,14 @@ _next :: proc(parser: ^Parser) -> Token {
 //         append(&rule.head, parse_expr(parser, 0))
 //         t := _peek(parser)
 //         if t.Kind != TK.COMMA { break }
-//         _ = _next(parser)
+//         _next(parser)
 //     }
 //     assert( _next(parser).Kind == TK.COLON )
 //     for {
 //         append(&rule.body, parse_expr(parser, 0))
 //         t := _peek(parser)
 //         if t.Kind != TK.COMMA { break }
-//         _ = _next(parser)
+//         _next(parser)
 //     }
 //     append(&parser.rules, rule)
 //     update_relations(parser, rule)
@@ -181,44 +298,38 @@ _next :: proc(parser: ^Parser) -> Token {
 
 ///////////////////////////////////////////////////////////////
 
-@private
-alloc_expr :: proc(parser: ^Parser, value: Expr) -> ^Expr {
-    ptr := new(Expr, parser.allocator)
-    ptr^ = value
-    return ptr
-}
-
 // @private
-parse_expr :: proc(parser: ^Parser, min_prec: int) -> ^Expr {
-    lhs := parse_primary(parser)
+parse_expr :: proc(parser: ^Parser, min_prec: int) -> Expr {
+    lhs := parse_leaf_expr(parser)
     return parse_expr_inner(parser, lhs, min_prec)
 }
 
 @private
-parse_primary :: proc(parser: ^Parser) -> ^Expr {
+parse_leaf_expr :: proc(parser: ^Parser) -> Expr {
     t := _next(parser)
-    if t.Kind == TK.MINUS {
-        // The precedence level of the unary minus
-        base := parse_expr(parser, 4)
-        return alloc_expr(parser, Expr{kind = .UNARY, op = "--", lhs = base})
-    } else if t.Kind == TK.INT {
-        return alloc_expr(parser, Expr{kind = .INT, op = t.Val})
-    } else if t.Kind == TK.STRING {
-        return alloc_expr(parser, Expr{kind = .STRING, op = t.Val})
-    } else if t.Kind == TK.ID {
-        return alloc_expr(parser, Expr{kind = .VAR, op = t.Val})
-    } else if t.Kind == TK.LPAREN {
+    #partial switch t.Kind {
+    case TK.INT:
+        return make_expr(parser, .INT, t.Val)
+    case TK.STRING:
+        return make_expr(parser, .STRING, t.Val)
+    case TK.ID:
+        return make_expr(parser, .VAR, t.Val)
+    case TK.LPAREN:
         e := parse_expr(parser, 0)
-        assert( _peek(parser).Kind == TK.RPAREN )
-        _next(parser)
+        assert( _next(parser).Kind == TK.RPAREN )
         return e
+    case TK.MINUS:
+        // The precedence level of the unary minus
+        base := parse_expr(parser, UNARY_PREC + 1)
+        return make_expr(parser, .UNARY, "--", &base)
+    case:
+        panic("Unexpected leaf kind")
     }
-    unreachable()
 }
 
-// Precedence climbing method
+// Precedence climbing algorithm
 @private
-parse_expr_inner :: proc(parser: ^Parser, lhs_: ^Expr, min_prec: int) -> ^Expr {
+parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
     lhs := lhs_
     non_assoc_found := false
     ahead := _peek(parser)
@@ -227,11 +338,11 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: ^Expr, min_prec: int) -> ^Expr {
         if !((is_non_assoc(ahead) && ahead_prec > min_prec) || ahead_prec >= min_prec ) {
             return lhs
         }
-        if non_assoc_found { return lhs }
+        if non_assoc_found && is_non_assoc(ahead) { return lhs }
         if is_non_assoc(ahead) { non_assoc_found = true }
 
         op := _next(parser)
-        rhs := parse_primary(parser)
+        rhs := parse_leaf_expr(parser)
         ahead = _peek(parser)
         for {
             op_prec := precedence(op)
@@ -243,44 +354,52 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: ^Expr, min_prec: int) -> ^Expr {
             rhs = parse_expr_inner(parser, rhs, new_prec)
             ahead = _peek(parser)
         }
-        lhs = alloc_expr(parser, Expr{kind = .BINARY, op = op.Val, lhs = lhs, rhs = rhs})
+        lhs = make_expr(parser, to_expr_kind(op), op.Val, &lhs, &rhs)
     }
     return lhs
 }
 
-@private
-is_non_assoc :: proc(t: Token) -> bool {
-    return t.Kind == TK.EQ || t.Kind == TK.NEQ
-}
 
-@private
-is_right_assoc :: proc(t: Token) -> bool {
-    return t.Kind == TK.POW
-}
 
-@private
-precedence :: proc(t: Token) -> int {
-    if t.Kind == TK.EQ || t.Kind == TK.NEQ { return 1 }
-    if t.Kind == TK.PLUS || t.Kind == TK.MINUS { return 2 }
-    if t.Kind == TK.MULT || t.Kind == TK.DIV || t.Kind == TK.MOD { return 3 }
-    if t.Kind == TK.POW { return 5 }
-    return -100
-}
 
+
+// | Precedence | Operators |
+// |---:|---|
+// | 1 | OR |
+// | 2 | AND |
+// | 3 | comparisons: =, !=, <, <=, >, >= |
+// | 4 | +, - |
+// | 5 | *, /, % |
+// | 6 | unary - |
+// | 7 | ^ |
+//
+// The grammar can be written by precedence level:
+//
+// Expr       = OrExpr ;
+// OrExpr     = AndExpr, { OR, AndExpr } ;
+// AndExpr    = CompareExpr, { AND, CompareExpr } ;
+// CompareExpr = AddExpr, [ CompareOp, AddExpr ] ;
+// AddExpr    = MultExpr, { ("+" | "-"), MultExpr } ;
+// MultExpr   = UnaryExpr, { ("*" | "/" | "%"), UnaryExpr } ;
+// UnaryExpr  = "-", UnaryExpr | PowerExpr ;
+// PowerExpr  = Primary, [ "^", UnaryExpr ] ;
+// Primary    = "(", Expr, ")"
+//            | Lookup
+//            | Literal
+//            | Variable ;
+// Lookup     = ID, "(", [ Expr, { ",", Expr } ], ")" ;
+//
+// The precedence-climbing parser handles all the infix operators. Parse unary - as a prefix; parse its operand with minimum precedence PREC_UNARY + 1, so exponentiation binds inside it. Keep ^ right-associative and comparisons non-associative, so a ^ b ^ c becomes a ^ (b ^ c) while a < b < c is rejected.
+//
+// Parentheses then recurse into the full Expr: (x) > 1 parses as a comparison, and (x OR b) AND C parses as AND(OR(x,b),C). Track whether each node produces a Boolean or arithmetic value so the parser can reject cases like (x + 1) AND y
+//
 ///////////////////////////////////////////////////////////////
 
 main :: proc() {
-    arena: vmem.Arena
-    err := vmem.arena_init_growing(&arena)
-    assert(err == nil)
-    defer vmem.arena_destroy(&arena)
-    allocator := vmem.arena_allocator(&arena)
+    input := `((x=1, y=2); (x=2, (y=3 ; y=4)))`
 
-    input := "a + b"
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
-
-    parser_ := init(stream, allocator)
-    e := parse_expr(&parser_, 0)
-    fmt.println(to_S_expression(e))
+    p := init(stream, context.allocator)
+    print_expr(parse_expr(&p, 0), .WHITE)
 }

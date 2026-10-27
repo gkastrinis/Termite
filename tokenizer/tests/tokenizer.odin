@@ -49,7 +49,8 @@ x y 123 x123`] = `ID:x||ID:y||INT:123||ID:x123||`
     inputs[`1/2//noooo`] = "INT:1||DIV:/||INT:2||"
     inputs[`1+2-3*4^5%54/3//1000`] =
         "INT:1||PLUS:+||INT:2||MINUS:-||INT:3||MULT:*||INT:4||POW:^||INT:5||MOD:%||INT:54||DIV:/||INT:3||"
-    inputs[`=!=():,;+-*/%^`] = "EQ:=||NEQ:!=||LPAREN:(||RPAREN:)||COLON::||COMMA:,||SEMICOLON:;||PLUS:+||MINUS:-||MULT:*||DIV:/||MOD:%||POW:^||"
+    inputs[`=!=<<=>>=():,;`] = "EQ:=||NEQ:!=||LT:<||LTEQ:<=||GT:>||GTEQ:>=||LPAREN:(||RPAREN:)||COLON::||COMMA:,||SEMICOLON:;||"
+    inputs[`+-*/%^`] = "PLUS:+||MINUS:-||MULT:*||DIV:/||MOD:%||POW:^||"
 
     inputs[`123 456abc`] = "INT:123||ERROR:456a||"
     inputs[`123 456$$`] = "INT:123||ERROR:456$||"

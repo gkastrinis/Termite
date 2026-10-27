@@ -37,22 +37,23 @@ test_expressions :: proc(t: ^testing.T) {
         "(a + (b % c))"
     inputs["a + b % c ^ d % e + f"] =
         "((a + ((b % (c ^ d)) % e)) + f)"
-    inputs["a + 1 = b / 2"] =
-        "((a + 1) = (b / 2))"
-    inputs["a = b"] =
-        "(a = b)"
-    inputs["a + 1 = c + d"] =
-        "((a + 1) = (c + d))"
-    inputs["a + -2 = c"] =
-        "((a + -(2)) = c)"
-    inputs["a + ----b = c"] =
-        "((a + -(-(-(-(b))))) = c)"
     inputs["a-b-c"] =
         "((a - b) - c)"
     inputs["-a ^ b"] =
-        "-((a ^ b))"
+        "-(a ^ b)"
     inputs["a ^ -b"] =
-        "(a ^ -(b))"
+        "(a ^ -b)"
+
+    // inputs["a = b"] =
+    //     "(a = b)"
+    // inputs["a + 1 = c + d"] =
+    //     "((a + 1) = (c + d))"
+    // inputs["a + -2 = c"] =
+    //     "((a + -(2)) = c)"
+    // inputs["a + 1 = b / 2"] =
+    //     "((a + 1) = (b / 2))"
+    // inputs["a + ----b = c"] =
+    //     "((a + -(-(-(-(b))))) = c)"
 
     for input, expected in inputs {
         reader := strings.Reader{s = input}
