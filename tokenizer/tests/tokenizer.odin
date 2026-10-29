@@ -14,9 +14,9 @@ tokenize_input :: proc(tok: ^tokenizer.Tokenizer) -> string {
     assert(err == nil)
     for {
         t := tokenizer.next_token(tok)
-        if t.Kind == .EOF { break }
-        strings.write_string(&builder, fmt.tprintf("%v:%v||", t.Kind, t.Val))
-        if t.Kind == .ERROR { break }
+        if t.kind == .End_Of_File { break }
+        strings.write_string(&builder, fmt.tprintf("%v:%v||", t.kind, t.val))
+        if t.kind == .Error { break }
     }
     return strings.to_string(builder)
 }
@@ -32,35 +32,35 @@ test_tokens :: proc(t: ^testing.T) {
     inputs := make(map[string]string, allocator)
 
     inputs[`// hello world 1+2/3`] = ""
-    inputs[`/`] = "DIV:/||"
+    inputs[`/`] = "Divide:/||"
     inputs[`"1" "" "asfds//by\"\\\xe"`] =
-        `STR:1||STR:||STR:asfds//by\"\\\xe||`
-    inputs[`123 67889 0`] = "INT:123||INT:67889||INT:0||"
-    inputs[`xyz`] = "ID:xyz||"
+        `Str:1||Str:||Str:asfds//by\"\\\xe||`
+    inputs[`123 67889 0`] = "Int:123||Int:67889||Int:0||"
+    inputs[`xyz`] = "Identifier:xyz||"
     inputs[`// hello world 1+2/3
-x y 123 x123`] = `ID:x||ID:y||INT:123||ID:x123||`
-    inputs[`def`] = `DEF:def||`
-    inputs[`decl`] = `DECL:decl||`
-    inputs[`true`] = `TRUE:true||`
-    inputs[`false`] = `FALSE:false||`
-    inputs[`false123`] = `ID:false123||`
+x y 123 x123`] = `Identifier:x||Identifier:y||Int:123||Identifier:x123||`
+    inputs[`def`] = `Def:def||`
+    inputs[`decl`] = `Decl:decl||`
+    inputs[`true`] = `True:true||`
+    inputs[`false`] = `False:false||`
+    inputs[`false123`] = `Identifier:false123||`
     inputs[`false12 def32 decla truea _x1q2 _`] =
-        `ID:false12||ID:def32||ID:decla||ID:truea||ID:_x1q2||ID:_||`
-    inputs[`1/2//noooo`] = "INT:1||DIV:/||INT:2||"
+        `Identifier:false12||Identifier:def32||Identifier:decla||Identifier:truea||Identifier:_x1q2||Identifier:_||`
+    inputs[`1/2//noooo`] = "Int:1||Divide:/||Int:2||"
     inputs[`1+2-3*4^5%54/3//1000`] =
-        "INT:1||PLUS:+||INT:2||MINUS:-||INT:3||MULT:*||INT:4||POW:^||INT:5||MOD:%||INT:54||DIV:/||INT:3||"
-    inputs[`=!=<<=>>=():,;`] = "EQ:=||NEQ:!=||LT:<||LTEQ:<=||GT:>||GTEQ:>=||LPAREN:(||RPAREN:)||COLON::||COMMA:,||SEMICOLON:;||"
-    inputs[`+-*/%^`] = "PLUS:+||MINUS:-||MULT:*||DIV:/||MOD:%||POW:^||"
+        "Int:1||Plus:+||Int:2||Minus:-||Int:3||Multiply:*||Int:4||Power:^||Int:5||Modulo:%||Int:54||Divide:/||Int:3||"
+    inputs[`=!=<<=>>=():,;`] = "Equal:=||Not_Equal:!=||Less_Than:<||Less_Than_Or_Equal:<=||Greater_Than:>||Greater_Than_Or_Equal:>=||Left_Paren:(||Right_Paren:)||Colon::||Comma:,||Semicolon:;||"
+    inputs[`+-*/%^`] = "Plus:+||Minus:-||Multiply:*||Divide:/||Modulo:%||Power:^||"
 
-    inputs[`123 456abc`] = "INT:123||ERROR:456a||"
-    inputs[`123 456$$`] = "INT:123||ERROR:456$||"
-    inputs[`123 abc$123`] = "INT:123||ERROR:abc$||"
-    inputs[`123 false$123`] = "INT:123||ERROR:false$||"
-    inputs[`"`] = "ERROR:||"
-    inputs[`"hello ther`] = "ERROR:hello ther||"
-    inputs[`"hello there\"`] = `ERROR:hello there\"||`
-    inputs[`"hello there\`] = `ERROR:hello there\||`
-    inputs[`abc!`] = "ID:abc||ERROR:!||"
+    inputs[`123 456abc`] = "Int:123||Error:456a||"
+    inputs[`123 456$$`] = "Int:123||Error:456$||"
+    inputs[`123 abc$123`] = "Int:123||Error:abc$||"
+    inputs[`123 false$123`] = "Int:123||Error:false$||"
+    inputs[`"`] = "Error:||"
+    inputs[`"hello ther`] = "Error:hello ther||"
+    inputs[`"hello there\"`] = `Error:hello there\"||`
+    inputs[`"hello there\`] = `Error:hello there\||`
+    inputs[`abc!`] = "Identifier:abc||Error:!||"
 
     for input, expected in inputs {
         reader := strings.Reader{s = input}

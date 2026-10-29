@@ -9,27 +9,30 @@ import "core:testing"
 import parser ".."
 
 to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
-    switch e.Kind {
-    case parser.ExprKind.INT, parser.ExprKind.STR, parser.ExprKind.VAR:
-        return fmt.tprintf("%v", e.Op)
-    case parser.ExprKind.UNARY:
-        assert( len(e.Args) == 1 )
-        return fmt.tprintf("-%v", to_string(p, e.Args[0]))
-    case parser.ExprKind.BINARY, parser.ExprKind.COMPARISON:
-        assert( len(e.Args) == 2 )
-        a := to_string(p, e.Args[0])
-        b := to_string(p, e.Args[1])
-        return fmt.tprintf("(%v %v %v)", a, e.Op, b)
-    case parser.ExprKind.OR, parser.ExprKind.AND:
+    switch e.kind {
+    case parser.Expr_Kind.Int, parser.Expr_Kind.Str, parser.Expr_Kind.Var:
+        return fmt.tprintf("%v", e.op)
+    case parser.Expr_Kind.Unary:
+        assert( len(e.args) == 1 )
+        return fmt.tprintf("-%v", to_string(p, e.args[0]))
+    case parser.Expr_Kind.Binary, parser.Expr_Kind.Comparison:
+        assert( len(e.args) == 2 )
+        a := to_string(p, e.args[0])
+        b := to_string(p, e.args[1])
+        return fmt.tprintf("(%v %v %v)", a, e.op, b)
+    case parser.Expr_Kind.Or, parser.Expr_Kind.And:
         builder := strings.builder_make(allocator = p.allocator)
         strings.write_byte(&builder, '(')
-        for arg, i in e.Args {
-            if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.Op)) }
+        for arg, i in e.args {
+            if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.op)) }
             strings.write_string(&builder, to_string(p, arg))
         }
         strings.write_byte(&builder, ')')
         return strings.to_string(builder)
+    case parser.Expr_Kind.Atom:
+        panic("not handled")
     }
+    unreachable()
 }
 
 @(test)
@@ -76,7 +79,7 @@ test_expressions :: proc(t: ^testing.T) {
         stream := strings.reader_to_stream(&reader)
 
         p := parser.init(stream, allocator)
-        e := parser.parse_expr(&p, 0)
+        e := parser.parse_expr(&p)
         actual := to_string(&p, e)
         testing.expect_value(t, actual, expected)
     }

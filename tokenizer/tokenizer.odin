@@ -4,19 +4,19 @@ import "core:io"
 import "core:mem"
 import "core:unicode/utf8"
 
-TokenKind :: enum {
-    TRUE, FALSE, DEF, DECL,
-    LPAREN, RPAREN,
-    COMMA, SEMICOLON, COLON,
-    EQ, NEQ, LT, LTEQ, GT, GTEQ,
-    PLUS, MINUS, MULT, DIV, MOD, POW,
-    ID, STR, INT,
-    ERROR, EOF,
+Token_Kind :: enum {
+    True, False, Def, Decl,
+    Left_Paren, Right_Paren,
+    Comma, Semicolon, Colon,
+    Equal, Not_Equal, Less_Than, Less_Than_Or_Equal, Greater_Than, Greater_Than_Or_Equal,
+    Plus, Minus, Multiply, Divide, Modulo, Power,
+    Identifier, Str, Int,
+    Error, End_Of_File,
 }
 
 Token :: struct {
-    Kind: TokenKind,
-    Val: string
+    kind: Token_Kind,
+    val: string
 }
 
 Tokenizer :: struct {
@@ -39,11 +39,11 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
 }
 
 next_token :: proc(tok: ^Tokenizer) -> Token {
-    if tok.in_error { return Token{.ERROR, "PREV_ERR"} }
+    if tok.in_error { return Token{kind = .Error, val = "PREV_ERR"} }
 
     for {
         r, err := read_rune(tok)
-        if err != nil { return Token{.EOF, ""} }
+        if err != nil { return Token{kind = .End_Of_File, val = ""} }
         if is_whitespace(r) { continue }
         if r == '/' && maybe_consume_comment(tok) { continue }
 
@@ -62,7 +62,7 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
         } else {
             append(&tok.buffer, r)
             tok.in_error = true
-            return Token{.ERROR, buffer_to_str(tok)}
+            return Token{kind = .Error, val = buffer_to_str(tok)}
         }
     }
     unreachable()
@@ -149,13 +149,13 @@ tok_string :: proc(tok: ^Tokenizer) -> Token {
         r, err := read_rune(tok)
         if err != nil {
             tok.in_error = true
-            return Token{.ERROR, buffer_to_str(tok)}
+            return Token{kind = .Error, val = buffer_to_str(tok)}
         } else if in_backslash {
             in_backslash = false
         } else if r == '\\' {
             in_backslash = true
         } else if r == '"' {
-            return Token{.STR, buffer_to_str(tok)}
+            return Token{kind = .Str, val = buffer_to_str(tok)}
         }
         append(&tok.buffer, r)
     }
@@ -182,8 +182,8 @@ tok_number :: proc(tok: ^Tokenizer, r: rune) -> Token {
         }
     }
     str := buffer_to_str(tok)
-    if tok.in_error { return Token{.ERROR, str} }
-    return Token{.INT, str}
+    if tok.in_error { return Token{kind = .Error, val = str} }
+    return Token{kind = .Int, val = str}
 }
 
 @private
@@ -207,65 +207,65 @@ tok_id_like :: proc(tok: ^Tokenizer, r: rune) -> Token {
         }
     }
     str := buffer_to_str(tok)
-    if tok.in_error { return Token{.ERROR, str} }
+    if tok.in_error { return Token{kind = .Error, val = str} }
     switch str {
-    case "def"  : return Token{.DEF, str}
-    case "decl" : return Token{.DECL, str}
-    case "true" : return Token{.TRUE, str}
-    case "false": return Token{.FALSE, str}
-    case        : return Token{.ID, str}
+    case "def"  : return Token{kind = .Def, val = str}
+    case "decl" : return Token{kind = .Decl, val = str}
+    case "true" : return Token{kind = .True, val = str}
+    case "false": return Token{kind = .False, val = str}
+    case        : return Token{kind = .Identifier, val = str}
     }
 }
 
 @private
 tok_boundary :: proc(tok: ^Tokenizer, r: rune) -> Token {
-    kind: TokenKind
+    kind: Token_Kind
     switch r {
-    case '(': kind = .LPAREN
-    case ')': kind = .RPAREN
-    case ',': kind = .COMMA
-    case ':': kind = .COLON
-    case ';': kind = .SEMICOLON
-    case '+': kind = .PLUS
-    case '-': kind = .MINUS
-    case '*': kind = .MULT
-    case '/': kind = .DIV
-    case '%': kind = .MOD
-    case '^': kind = .POW
-    case '=': kind = .EQ
+    case '(': kind = .Left_Paren
+    case ')': kind = .Right_Paren
+    case ',': kind = .Comma
+    case ':': kind = .Colon
+    case ';': kind = .Semicolon
+    case '+': kind = .Plus
+    case '-': kind = .Minus
+    case '*': kind = .Multiply
+    case '/': kind = .Divide
+    case '%': kind = .Modulo
+    case '^': kind = .Power
+    case '=': kind = .Equal
     case '!':
         rr, err := read_rune(tok)
         if err != nil {
-            kind = .ERROR
+            kind = .Error
         } else if rr != '=' {
-            kind = .ERROR
+            kind = .Error
             unread_rune(tok, rr)
         } else {
-            return Token{.NEQ, "!="}
+            return Token{kind = .Not_Equal, val = "!="}
         }
     case '<':
         rr, err := read_rune(tok)
         if err != nil {
-            kind = .LT
+            kind = .Less_Than
         } else if rr != '=' {
-            kind = .LT
+            kind = .Less_Than
             unread_rune(tok, rr)
         } else {
-            return Token{.LTEQ, "<="}
+            return Token{kind = .Less_Than_Or_Equal, val = "<="}
         }
     case '>':
         rr, err := read_rune(tok)
         if err != nil {
-            kind = .GT
+            kind = .Greater_Than
         } else if rr != '=' {
-            kind = .GT
+            kind = .Greater_Than
             unread_rune(tok, rr)
         } else {
-            return Token{.GTEQ, ">="}
+            return Token{kind = .Greater_Than_Or_Equal, val = ">="}
         }
-    case : kind = .ERROR
+    case : kind = .Error
     }
-    if kind == .ERROR { tok.in_error = true }
+    if kind == .Error { tok.in_error = true }
     append(&tok.buffer, r)
-    return Token{kind, buffer_to_str(tok)}
+    return Token{kind = kind, val = buffer_to_str(tok)}
 }

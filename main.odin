@@ -19,13 +19,12 @@ main :: proc() {
     p := parser.init(stream, context.allocator)
     parser.parse(&p)
     parser.print_program(&p)
-    // parser.print_expr(parser.parse_expr(&p, 0), .WHITE)
 
     // tok := tokenizer.init(stream, context.allocator)
     // for {
     //     t := tokenizer.next_token(&tok)
     //     fmt.println(t)
-    //     if t.Kind == .EOF || t.Kind == .ERROR { break }
+    //     if t.kind == .End_Of_File || t.kind == .Error { break }
     // }
 }
 
@@ -71,13 +70,13 @@ main :: proc() {
 //
 //     for rule in parser.rules {
 //         for e in rule.head {
-//             assert(e.kind == .ATOM)
+//             assert(e.kind == .Atom)
 //             s := rel_to_rules[e.op] or_else make(IntSet)
 //             s[rule.id] = Void{}
 //             rel_to_rules[e.op] = s
 //         }
 //         for e in rule.body {
-//             if e.kind != .ATOM { continue }
+//             if e.kind != .Atom { continue }
 //             s := rel_to_rules[e.op] or_else make(IntSet)
 //             s[rule.id] = Void{}
 //             rel_to_rules[e.op] = s
