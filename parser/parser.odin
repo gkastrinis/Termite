@@ -16,7 +16,7 @@ ExprKind :: enum {
     OR, AND,
     COMPARISON,
     // Arithmetic Expressions
-    BINARY, UNARY, INT, STRING, VAR,
+    BINARY, UNARY, INT, STR, VAR,
 }
 
 Expr :: struct {
@@ -79,11 +79,13 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
 //     }
 // }
 
+///////////////////////////////////////////////////////////////
+
 to_S_expression :: proc(e: Expr) -> string {
     switch e.kind {
-    case .INT, .STRING, .VAR:
+    case .INT, .STR, .VAR:
         return fmt.tprintf("%v", e.op)
-    case .BINARY:
+    case .BINARY, .COMPARISON, .OR, .AND:
         assert( len(e.args) == 2 )
         a := to_S_expression(e.args[0])
         b := to_S_expression(e.args[1])
@@ -91,12 +93,6 @@ to_S_expression :: proc(e: Expr) -> string {
     case .UNARY:
         assert( len(e.args) == 1 )
         return fmt.tprintf("-%v", to_S_expression(e.args[0]))
-    case .COMPARISON:
-        panic("Missing print case")
-    case .OR:
-        panic("Missing print case")
-    case .AND:
-        panic("Missing print case")
     }
     unreachable()
 }
@@ -111,7 +107,7 @@ print_expr :: proc(e: Expr, color: ParenColor) {
     switch e.kind {
     case .INT:
         fmt.printf("\x1b[32m%v\x1b[0m", e.op)
-    case .STRING:
+    case .STR:
         fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
     case .VAR:
         fmt.printf("\x1b[38;5;208m%v\x1b[0m", e.op)
@@ -310,8 +306,8 @@ parse_leaf_expr :: proc(parser: ^Parser) -> Expr {
     #partial switch t.Kind {
     case TK.INT:
         return make_expr(parser, .INT, t.Val)
-    case TK.STRING:
-        return make_expr(parser, .STRING, t.Val)
+    case TK.STR:
+        return make_expr(parser, .STR, t.Val)
     case TK.ID:
         return make_expr(parser, .VAR, t.Val)
     case TK.LPAREN:
@@ -362,10 +358,14 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
 ///////////////////////////////////////////////////////////////
 
 main :: proc() {
-    input := `((x=1, y=2); (x=2, (y=3 ; y=4)))`
+    // input := `(x > 1) ; (x + 1)`
+    // input := "a / b * c"
+    input := "a * b / c"
 
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
     p := init(stream, context.allocator)
-    print_expr(parse_expr(&p, 0), .WHITE)
+    e := parse_expr(&p, 0)
+    fmt.println(e)
+    print_expr(e, .WHITE)
 }

@@ -10,7 +10,7 @@ TokenKind :: enum {
     COMMA, SEMICOLON, COLON,
     EQ, NEQ, LT, LTEQ, GT, GTEQ,
     PLUS, MINUS, MULT, DIV, MOD, POW,
-    ID, STRING, INT,
+    ID, STR, INT,
     ERROR, EOF,
 }
 
@@ -84,10 +84,12 @@ is_whitespace :: proc(r: rune) -> bool {
 
 @private
 is_boundary :: proc(r: rune) -> bool {
-    return r == '(' || r == ')' || r == ':' || r == ',' || r == ';' ||
-            r == '=' || r == '!' || r == '<' || r == '>' ||
-            r == '+' || r == '-' || r == '*' || r == '/' || r == '%' || r == '^' ||
-            is_whitespace(r) || r == '\x00'
+    switch r {
+    case '(', ')', ':', ',', ';', '=', '!', '<', '>', '+', '-', '*', '/', '%', '^', '\x00':
+        return true
+    case:
+        return is_whitespace(r)
+    }
 }
 
 @private
@@ -153,7 +155,7 @@ tok_string :: proc(tok: ^Tokenizer) -> Token {
         } else if r == '\\' {
             in_backslash = true
         } else if r == '"' {
-            return Token{.STRING, buffer_to_str(tok)}
+            return Token{.STR, buffer_to_str(tok)}
         }
         append(&tok.buffer, r)
     }

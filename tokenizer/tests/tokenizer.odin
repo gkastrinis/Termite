@@ -34,7 +34,7 @@ test_tokens :: proc(t: ^testing.T) {
     inputs[`// hello world 1+2/3`] = ""
     inputs[`/`] = "DIV:/||"
     inputs[`"1" "" "asfds//by\"\\\xe"`] =
-        `STRING:1||STRING:||STRING:asfds//by\"\\\xe||`
+        `STR:1||STR:||STR:asfds//by\"\\\xe||`
     inputs[`123 67889 0`] = "INT:123||INT:67889||INT:0||"
     inputs[`xyz`] = "ID:xyz||"
     inputs[`// hello world 1+2/3

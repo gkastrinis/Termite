@@ -8,7 +8,7 @@ import parser "./parser"
 import tokenizer "./tokenizer"
 
 main :: proc() {
-    input := `false def defa`
+    input := `a * b / c`
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
     tok := tokenizer.init(stream, context.allocator)
