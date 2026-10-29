@@ -81,18 +81,27 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
 
 ///////////////////////////////////////////////////////////////
 
-to_S_expression :: proc(e: Expr) -> string {
+to_string :: proc(parser: ^Parser, e: Expr) -> string {
     switch e.kind {
     case .INT, .STR, .VAR:
         return fmt.tprintf("%v", e.op)
-    case .BINARY, .COMPARISON, .OR, .AND:
-        assert( len(e.args) == 2 )
-        a := to_S_expression(e.args[0])
-        b := to_S_expression(e.args[1])
-        return fmt.tprintf("(%v %v %v)", a, e.op, b)
     case .UNARY:
         assert( len(e.args) == 1 )
-        return fmt.tprintf("-%v", to_S_expression(e.args[0]))
+        return fmt.tprintf("-%v", to_string(parser, e.args[0]))
+    case .BINARY, .COMPARISON:
+        assert( len(e.args) == 2 )
+        a := to_string(parser, e.args[0])
+        b := to_string(parser, e.args[1])
+        return fmt.tprintf("(%v %v %v)", a, e.op, b)
+    case .OR, .AND:
+        builder := strings.builder_make(allocator = parser.allocator)
+        strings.write_byte(&builder, '(')
+        for arg, i in e.args {
+            if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.op)) }
+            strings.write_string(&builder, to_string(parser, arg))
+        }
+        strings.write_byte(&builder, ')')
+        return strings.to_string(builder)
     }
     unreachable()
 }
@@ -350,7 +359,13 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
             rhs = parse_expr_inner(parser, rhs, new_prec)
             ahead = _peek(parser)
         }
-        lhs = make_expr(parser, to_expr_kind(op), op.Val, &lhs, &rhs)
+        // Flatten AND, OR
+        kind := to_expr_kind(op)
+        if (lhs.kind == .AND || lhs.kind == .OR) && lhs.kind == kind {
+            append(&lhs.args, rhs)
+        } else {
+            lhs = make_expr(parser, kind, op.Val, &lhs, &rhs)
+        }
     }
     return lhs
 }
@@ -359,13 +374,11 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
 
 main :: proc() {
     // input := `(x > 1) ; (x + 1)`
-    // input := "a / b * c"
-    input := "a * b / c"
+    // input := "a * b / c"
+    input := "x > 1, y > 2, z > 3"
 
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
     p := init(stream, context.allocator)
-    e := parse_expr(&p, 0)
-    fmt.println(e)
-    print_expr(e, .WHITE)
+    print_expr(parse_expr(&p, 0), .WHITE)
 }

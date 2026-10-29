@@ -40,6 +40,8 @@ test_expressions :: proc(t: ^testing.T) {
     inputs["a, b ; c, d"] = "((a , b) ; (c , d))"
     inputs["(a ; b), c"] = "((a ; b) , c)"
     inputs["a < b ; c < d, e >= f"] = "((a < b) ; ((c < d) , (e >= f)))"
+    inputs["x > 1, y > 2, z > 3"] = "((x > 1) , (y > 2) , (z > 3))"
+    inputs["x > 1, y > 2; z > 3"] = "(((x > 1) , (y > 2)) ; (z > 3))"
 
     // TODO: this should fail
     // inputs["(x > 1) ; (x + 1)"] = ..
@@ -50,7 +52,7 @@ test_expressions :: proc(t: ^testing.T) {
 
         p := parser.init(stream, allocator)
         e := parser.parse_expr(&p, 0)
-        actual := parser.to_S_expression(e)
+        actual := parser.to_string(&p, e)
         testing.expect_value(t, actual, expected)
     }
 }
