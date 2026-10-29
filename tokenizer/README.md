@@ -1,8 +1,10 @@
 # Tokenizer
 
-## Lexical rules
+The tokenizer reads an `io.Stream` and returns one `Token` at a time. Each token
+has a `kind` from `Token_Kind` and a string `val`. It skips spaces, tabs, CR,
+LF, and `//` line comments.
 
-Whitespace and `//` line comments are skipped.
+## Lexical rules
 
 | Token | Lexical form |
 | --- | --- |
@@ -12,16 +14,29 @@ Whitespace and `//` line comments are skipped.
 | Keywords | `def`, `decl`, `true`, `false` |
 | Punctuation and operators | `(` `)` `,` `;` `:` `=` `!=` `<` `<=` `>` `>=` `+` `-` `*` `/` `%` `^` |
 
-Keywords are recognized only when the whole identifier matches. For example,
-`false` is a keyword, while `false123` is an identifier. String token values
-retain their escape characters.
+Identifiers and integers use ASCII characters. Keywords are recognized only
+when the complete identifier matches: `false` is a keyword, while `false123` is
+an identifier.
 
-## Errors
+A string token's `val` excludes the surrounding quotes and retains its escape
+characters. The backslash only controls whether the next quote closes the
+string; escape sequences are not decoded.
 
-After `next_token` returns an `ERROR` token, the tokenizer remains in an error
-state: each subsequent call returns `ERROR:PREV_ERR`. `tokenize_input` stops at
-the first error. Whether tokenization should continue after an error is still
-to be decided.
+## Errors and end of input
+
+An invalid character or malformed token produces an `Error` token. After an
+error, the tokenizer stays in an error state: subsequent calls return
+`Error` with the value `PREV_ERR`. Callers should stop reading at the first
+error.
+
+A read error currently produces `End_Of_File`; the tokenizer does not yet
+distinguish ordinary end of input from other stream errors.
+
+## Parser compatibility
+
+The tokenizer recognizes `true` and `false` as keyword tokens. The parser does
+not currently accept them as expression operands. It also recognizes `decl`,
+but declaration parsing has not been implemented.
 
 ## Planned additions
 

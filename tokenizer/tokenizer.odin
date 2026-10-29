@@ -24,6 +24,7 @@ Tokenizer :: struct {
     allocator: mem.Allocator,
 
     ahead: rune,
+    has_ahead: bool,
     buffer: [dynamic]rune,
     in_error: bool
 }
@@ -34,6 +35,7 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
         stream = stream,
         allocator = allocator,
         buffer = buffer,
+        has_ahead = false,
         in_error = false,
     }
 }
@@ -109,9 +111,9 @@ is_id_main :: proc(r: rune) -> bool {
 
 @private
 read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
-    if tok.ahead != '\x00' {
+    if tok.has_ahead {
         r := tok.ahead
-        tok.ahead = '\x00'
+        tok.has_ahead = false
         return r, nil
     } else {
         r, _, err := io.read_rune(tok.stream)
@@ -121,8 +123,9 @@ read_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
 
 @private
 unread_rune :: proc(tok: ^Tokenizer, r: rune) {
-    assert( tok.ahead == '\x00' )
+    assert(!tok.has_ahead)
     tok.ahead = r
+    tok.has_ahead = true
 }
 
 ///////////////////////////////////////////////////////////////
@@ -130,7 +133,10 @@ unread_rune :: proc(tok: ^Tokenizer, r: rune) {
 @private
 maybe_consume_comment :: proc(tok: ^Tokenizer) -> bool {
     r, err := read_rune(tok)
-    if err != nil || r != '/' {
+    if err != nil {
+        return false
+    }
+    if r != '/' {
         unread_rune(tok, r)
         return false
     }
