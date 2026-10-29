@@ -8,15 +8,25 @@ import parser "./parser"
 import tokenizer "./tokenizer"
 
 main :: proc() {
-    input := `a * b / c`
+    // input := "x > y > z"
+    // input := "(x > 1) ; (x + 1)"
+    // input := "foo(x, y), bar()"
+    input := "def foo(x, y), bar(x, y), baz(1, (x+1)) : bar(x, y)"
+
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)
-    tok := tokenizer.init(stream, context.allocator)
-    for {
-        t := tokenizer.next_token(&tok)
-        fmt.println(t)
-        if t.Kind == .EOF || t.Kind == .ERROR { break }
-    }
+
+    p := parser.init(stream, context.allocator)
+    parser.parse(&p)
+    parser.print_program(&p)
+    // parser.print_expr(parser.parse_expr(&p, 0), .WHITE)
+
+    // tok := tokenizer.init(stream, context.allocator)
+    // for {
+    //     t := tokenizer.next_token(&tok)
+    //     fmt.println(t)
+    //     if t.Kind == .EOF || t.Kind == .ERROR { break }
+    // }
 }
 
 // main :: proc() {

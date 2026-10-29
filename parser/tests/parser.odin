@@ -1,11 +1,36 @@
 package tests
 
+import "core:fmt"
 import "core:mem"
 import vmem "core:mem/virtual"
 import "core:strings"
 import "core:testing"
 
 import parser ".."
+
+to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
+    switch e.Kind {
+    case parser.ExprKind.INT, parser.ExprKind.STR, parser.ExprKind.VAR:
+        return fmt.tprintf("%v", e.Op)
+    case parser.ExprKind.UNARY:
+        assert( len(e.Args) == 1 )
+        return fmt.tprintf("-%v", to_string(p, e.Args[0]))
+    case parser.ExprKind.BINARY, parser.ExprKind.COMPARISON:
+        assert( len(e.Args) == 2 )
+        a := to_string(p, e.Args[0])
+        b := to_string(p, e.Args[1])
+        return fmt.tprintf("(%v %v %v)", a, e.Op, b)
+    case parser.ExprKind.OR, parser.ExprKind.AND:
+        builder := strings.builder_make(allocator = p.allocator)
+        strings.write_byte(&builder, '(')
+        for arg, i in e.Args {
+            if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.Op)) }
+            strings.write_string(&builder, to_string(p, arg))
+        }
+        strings.write_byte(&builder, ')')
+        return strings.to_string(builder)
+    }
+}
 
 @(test)
 test_expressions :: proc(t: ^testing.T) {
@@ -52,7 +77,7 @@ test_expressions :: proc(t: ^testing.T) {
 
         p := parser.init(stream, allocator)
         e := parser.parse_expr(&p, 0)
-        actual := parser.to_string(&p, e)
+        actual := to_string(&p, e)
         testing.expect_value(t, actual, expected)
     }
 }

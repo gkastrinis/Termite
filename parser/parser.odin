@@ -14,15 +14,15 @@ TK :: tokenizer.TokenKind
 ExprKind :: enum {
     // Logical Expressions
     OR, AND,
-    COMPARISON,
+    ATOM, COMPARISON,
     // Arithmetic Expressions
     BINARY, UNARY, INT, STR, VAR,
 }
 
 Expr :: struct {
-    kind: ExprKind,
-    op: string,
-    args: [dynamic]Expr,
+    Kind: ExprKind,
+    Op: string,
+    Args: [dynamic]Expr,
 }
 
 // Relation :: struct {
@@ -31,12 +31,12 @@ Expr :: struct {
 //     fields: [dynamic]string,
 //     types: [dynamic]string,
 // }
-//
-// Rule :: struct {
-//     id: u16,
-//     head: [dynamic]Expr,
-//     body: [dynamic]Expr
-// }
+
+Rule :: struct {
+    id: u16,
+    head: [dynamic]Expr,
+    body: Expr,
+}
 
 Parser :: struct {
     allocator: mem.Allocator,
@@ -47,8 +47,8 @@ Parser :: struct {
 
     // declared: map[string]Relation,
     // inferred: map[string]Relation,
-    // rules: [dynamic]Rule,
-    // last_rule_id: u16,
+    rules: [dynamic]Rule,
+    last_rule_id: u16,
 }
 
 init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
@@ -58,53 +58,36 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
         has_ahead = false,
         // declared = make(map[string]Relation),
         // inferred = make(map[string]Relation),
+        rules = make([dynamic]Rule, 0, 32, allocator)
     }
 }
 
-// parse :: proc(parser: ^Parser) { for {
-//         t := _next(parser)
-//         if t.Kind == TK.EOF {
-//             fmt.printf("\x1b[33m<EOF>\x1b[0m\n")
-//             break
-//         } else if t.Kind == TK.DECL {
-//             parse_decl(parser)
-//         } else if t.Kind == TK.DEF {
-//             parse_def(parser)
-//         } else if t.Kind == TK.ERROR {
-//             fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.Val, t.Kind)
-//             break
-//         } else {
-//             fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.Val, t.Kind)
-//         }
-//     }
-// }
+parse :: proc(parser: ^Parser) {
+    for {
+        t := _next(parser)
+        if t.Kind == TK.EOF {
+            break
+        } else if t.Kind == TK.DECL {
+            panic("not yet")
+            // parse_decl(parser)
+        } else if t.Kind == TK.DEF {
+            parse_rule(parser)
+        } else if t.Kind == TK.ERROR {
+            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.Val, t.Kind)
+            break
+        } else {
+            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.Val, t.Kind)
+            panic("waaat")
+        }
+    }
+}
+
+parse_expr :: proc(parser: ^Parser, min_prec: int = 0, opt: Operand_Mode = .ANY_OPERAND) -> Expr {
+    lhs := parse_operand(parser, opt)
+    return prec_climbing_parse(parser, lhs, min_prec, opt)
+}
 
 ///////////////////////////////////////////////////////////////
-
-to_string :: proc(parser: ^Parser, e: Expr) -> string {
-    switch e.kind {
-    case .INT, .STR, .VAR:
-        return fmt.tprintf("%v", e.op)
-    case .UNARY:
-        assert( len(e.args) == 1 )
-        return fmt.tprintf("-%v", to_string(parser, e.args[0]))
-    case .BINARY, .COMPARISON:
-        assert( len(e.args) == 2 )
-        a := to_string(parser, e.args[0])
-        b := to_string(parser, e.args[1])
-        return fmt.tprintf("(%v %v %v)", a, e.op, b)
-    case .OR, .AND:
-        builder := strings.builder_make(allocator = parser.allocator)
-        strings.write_byte(&builder, '(')
-        for arg, i in e.args {
-            if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.op)) }
-            strings.write_string(&builder, to_string(parser, arg))
-        }
-        strings.write_byte(&builder, ')')
-        return strings.to_string(builder)
-    }
-    unreachable()
-}
 
 ParenColor :: enum {
     WHITE, GREEN, MAGENTA, GREY, YELLOW, CYAN
@@ -112,29 +95,44 @@ ParenColor :: enum {
 
 COLORS := [6]string{"0", "92", "95", "30", "93", "96"}
 
-print_expr :: proc(e: Expr, color: ParenColor) {
-    switch e.kind {
+print_expr :: proc(e: Expr, color: ParenColor = .WHITE) {
+    switch e.Kind {
     case .INT:
-        fmt.printf("\x1b[32m%v\x1b[0m", e.op)
+        fmt.printf("\x1b[32m%v\x1b[0m", e.Op)
     case .STR:
-        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
+        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.Op)
     case .VAR:
-        fmt.printf("\x1b[38;5;208m%v\x1b[0m", e.op)
+        fmt.printf("\x1b[33m%v\x1b[0m", e.Op)
     case .BINARY, .COMPARISON, .OR, .AND:
         fmt.printf("\x1b[%sm(\x1b[0m", COLORS[color])
-        is_first := true
-        for arg in e.args {
-            if !is_first {
-                fmt.printf(" %v ", e.op)
-            }
-            is_first = false
+        for arg, i in e.Args {
+            if i > 0 { fmt.printf(" %v ", e.Op) }
             print_expr(arg, ParenColor((int(color) + 1) % 6))
         }
         fmt.printf("\x1b[%sm)\x1b[0m", COLORS[color])
     case .UNARY:
-        assert( len(e.args) == 1 )
+        assert( len(e.Args) == 1 )
         fmt.print("-")
-        print_expr(e.args[0], color)
+        print_expr(e.Args[0], color)
+    case .ATOM:
+        fmt.printf("\x1b[34m%v\x1b[0m(", e.Op)
+        for arg, i in e.Args {
+            if i > 0 { fmt.printf(", ") }
+            print_expr(arg, ParenColor((int(color) + 1) % 6))
+        }
+        fmt.print(")")
+    }
+}
+
+print_program :: proc(parser: ^Parser) {
+    for rule in parser.rules {
+        fmt.printf("\x1b[40m#%v\x1b[0m\n", rule.id)
+        for atom, i in rule.head {
+            if i > 0 { fmt.print(", ") }
+            print_expr(atom)
+        }
+        fmt.println(" <-")
+        print_expr(rule.body)
     }
 }
 
@@ -162,14 +160,12 @@ _next :: proc(parser: ^Parser) -> Token {
 make_expr :: proc(
     parser: ^Parser, kind: ExprKind, op: string, a: ^Expr = nil, b: ^Expr = nil
 ) -> Expr {
-    e := Expr{kind = kind, op = op}
-    e.args = make([dynamic]Expr, 0, 8, parser.allocator)
-    if a != nil { append(&e.args, a^) }
-    if b != nil { append(&e.args, b^) }
+    e := Expr{Kind = kind, Op = op}
+    e.Args = make([dynamic]Expr, 0, 8, parser.allocator)
+    if a != nil { append(&e.Args, a^) }
+    if b != nil { append(&e.Args, b^) }
     return e
 }
-
-UNARY_PREC :: 6
 
 @private
 to_expr_kind :: proc(t: Token) -> ExprKind {
@@ -202,6 +198,9 @@ is_right_assoc :: proc(t: Token) -> bool {
     return t.Kind == TK.POW
 }
 
+ARITHMETIC_PREC :: 4
+UNARY_PREC :: 6
+
 @private
 precedence :: proc(t: Token) -> int {
     #partial switch t.Kind {
@@ -221,7 +220,6 @@ precedence :: proc(t: Token) -> int {
     case:
         return -42
     }
-    unreachable()
 }
 
 ///////////////////////////////////////////////////////////////
@@ -258,72 +256,88 @@ precedence :: proc(t: Token) -> int {
 //     parser.declared[rel.name] = rel
 //     return rel
 // }
-//
-// parse_def :: proc(parser: ^Parser) {
-//     rule := Rule{id = parser.last_rule_id}
-//     parser.last_rule_id += 1
-//
-//     for {
-//         append(&rule.head, parse_expr(parser, 0))
-//         t := _peek(parser)
-//         if t.Kind != TK.COMMA { break }
-//         _next(parser)
-//     }
-//     assert( _next(parser).Kind == TK.COLON )
-//     for {
-//         append(&rule.body, parse_expr(parser, 0))
-//         t := _peek(parser)
-//         if t.Kind != TK.COMMA { break }
-//         _next(parser)
-//     }
-//     append(&parser.rules, rule)
-//     update_relations(parser, rule)
-// }
-//
+
+@private
+parse_rule :: proc(parser: ^Parser) {
+    parser.last_rule_id += 1
+    rule := Rule{id = parser.last_rule_id}
+    rule.head = make([dynamic]Expr, 0, 1, parser.allocator)
+
+    for {
+        atom := parse_operand(parser, .ATOM_ONLY)
+        assert( atom.Kind == .ATOM )
+        append(&rule.head, atom)
+        t := _peek(parser)
+        if t.Kind != TK.COMMA { break }
+        _next(parser)
+    }
+    assert( _next(parser).Kind == TK.COLON )
+    rule.body = parse_expr(parser)
+
+    append(&parser.rules, rule)
+}
+
 // @private
 // update_relations :: proc(parser: ^Parser, rule: Rule) {
 //     for e in rule.head {
-//         assert( e.kind == .ATOM )
-//         if e.op in parser.declared {
-//             rel := parser.declared[e.op]
-//             assert( rel.arity == u8(len(e.args)) )
-//         } else if e.op in parser.inferred {
-//             rel := parser.inferred[e.op]
-//             assert( rel.arity == u8(len(e.args)) )
+//         assert( e.Kind == .ATOM )
+//         if e.Op in parser.declared {
+//             rel := parser.declared[e.Op]
+//             assert( rel.arity == u8(len(e.Args)) )
+//         } else if e.Op in parser.inferred {
+//             rel := parser.inferred[e.Op]
+//             assert( rel.arity == u8(len(e.Args)) )
 //         } else {
-//             rel := Relation{name = e.op, arity = u8(len(e.args))}
+//             rel := Relation{name = e.Op, arity = u8(len(e.Args))}
 //             for i in 0..<rel.arity {
 //                 append(&rel.fields, "?")
 //                 append(&rel.types, T_ANY)
 //             }
-//             parser.inferred[e.op] = rel
+//             parser.inferred[e.Op] = rel
 //         }
 //     }
 // }
 
-///////////////////////////////////////////////////////////////
-
-// @private
-parse_expr :: proc(parser: ^Parser, min_prec: int) -> Expr {
-    lhs := parse_leaf_expr(parser)
-    return parse_expr_inner(parser, lhs, min_prec)
+@private
+Operand_Mode :: enum {
+    ATOM_ONLY, NO_ATOM, ANY_OPERAND
 }
 
 @private
-parse_leaf_expr :: proc(parser: ^Parser) -> Expr {
+parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
     t := _next(parser)
     #partial switch t.Kind {
     case TK.INT:
+        assert( opt != .ATOM_ONLY )
         return make_expr(parser, .INT, t.Val)
     case TK.STR:
+        assert( opt != .ATOM_ONLY )
         return make_expr(parser, .STR, t.Val)
     case TK.ID:
-        return make_expr(parser, .VAR, t.Val)
+        if _peek(parser).Kind != TK.LPAREN {
+            assert( opt != .ATOM_ONLY )
+            return make_expr(parser, .VAR, t.Val)
+        }
+        assert( opt != .NO_ATOM )
+        _next(parser)
+        atom := make_expr(parser, .ATOM, t.Val)
+        for {
+            if _peek(parser).Kind == TK.RPAREN {
+                _next(parser)
+                break
+            }
+            e := parse_expr(parser, ARITHMETIC_PREC, .NO_ATOM)
+            append(&atom.Args, e)
+            if _peek(parser).Kind == TK.COMMA { _next(parser) }
+        }
+        return atom
     case TK.LPAREN:
+        assert( opt != .ATOM_ONLY )
         e := parse_expr(parser, 0)
         assert( _next(parser).Kind == TK.RPAREN )
         return e
     case TK.MINUS:
+        assert( opt != .ATOM_ONLY )
         // The precedence level of the unary minus
         base := parse_expr(parser, UNARY_PREC + 1)
         return make_expr(parser, .UNARY, "--", &base)
@@ -332,9 +346,8 @@ parse_leaf_expr :: proc(parser: ^Parser) -> Expr {
     }
 }
 
-// Precedence climbing algorithm
 @private
-parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
+prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Operand_Mode) -> Expr {
     lhs := lhs_
     non_assoc_found := false
     ahead := _peek(parser)
@@ -347,7 +360,7 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
         if is_non_assoc(ahead) { non_assoc_found = true }
 
         op := _next(parser)
-        rhs := parse_leaf_expr(parser)
+        rhs := parse_operand(parser, opt)
         ahead = _peek(parser)
         for {
             op_prec := precedence(op)
@@ -356,29 +369,16 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
                 break
             }
             new_prec := op_prec + (ahead_prec > op_prec ? 1 : 0)
-            rhs = parse_expr_inner(parser, rhs, new_prec)
+            rhs = prec_climbing_parse(parser, rhs, new_prec, opt)
             ahead = _peek(parser)
         }
         // Flatten AND, OR
         kind := to_expr_kind(op)
-        if (lhs.kind == .AND || lhs.kind == .OR) && lhs.kind == kind {
-            append(&lhs.args, rhs)
+        if (lhs.Kind == .AND || lhs.Kind == .OR) && lhs.Kind == kind {
+            append(&lhs.Args, rhs)
         } else {
             lhs = make_expr(parser, kind, op.Val, &lhs, &rhs)
         }
     }
     return lhs
-}
-
-///////////////////////////////////////////////////////////////
-
-main :: proc() {
-    // input := `(x > 1) ; (x + 1)`
-    // input := "a * b / c"
-    input := "x > 1, y > 2, z > 3"
-
-    reader := strings.Reader{s = input}
-    stream := strings.reader_to_stream(&reader)
-    p := init(stream, context.allocator)
-    print_expr(parse_expr(&p, 0), .WHITE)
 }
