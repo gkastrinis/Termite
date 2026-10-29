@@ -359,40 +359,6 @@ parse_expr_inner :: proc(parser: ^Parser, lhs_: Expr, min_prec: int) -> Expr {
     return lhs
 }
 
-
-
-
-
-// | Precedence | Operators |
-// |---:|---|
-// | 1 | OR |
-// | 2 | AND |
-// | 3 | comparisons: =, !=, <, <=, >, >= |
-// | 4 | +, - |
-// | 5 | *, /, % |
-// | 6 | unary - |
-// | 7 | ^ |
-//
-// The grammar can be written by precedence level:
-//
-// Expr       = OrExpr ;
-// OrExpr     = AndExpr, { OR, AndExpr } ;
-// AndExpr    = CompareExpr, { AND, CompareExpr } ;
-// CompareExpr = AddExpr, [ CompareOp, AddExpr ] ;
-// AddExpr    = MultExpr, { ("+" | "-"), MultExpr } ;
-// MultExpr   = UnaryExpr, { ("*" | "/" | "%"), UnaryExpr } ;
-// UnaryExpr  = "-", UnaryExpr | PowerExpr ;
-// PowerExpr  = Primary, [ "^", UnaryExpr ] ;
-// Primary    = "(", Expr, ")"
-//            | Lookup
-//            | Literal
-//            | Variable ;
-// Lookup     = ID, "(", [ Expr, { ",", Expr } ], ")" ;
-//
-// The precedence-climbing parser handles all the infix operators. Parse unary - as a prefix; parse its operand with minimum precedence PREC_UNARY + 1, so exponentiation binds inside it. Keep ^ right-associative and comparisons non-associative, so a ^ b ^ c becomes a ^ (b ^ c) while a < b < c is rejected.
-//
-// Parentheses then recurse into the full Expr: (x) > 1 parses as a comparison, and (x OR b) AND C parses as AND(OR(x,b),C). Track whether each node produces a Boolean or arithmetic value so the parser can reject cases like (x + 1) AND y
-//
 ///////////////////////////////////////////////////////////////
 
 main :: proc() {

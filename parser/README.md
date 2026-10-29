@@ -2,20 +2,35 @@
 
 ## Expression grammar
 
-The expression grammar uses the precedence levels below. Higher levels bind
-more tightly. Unary minus is parsed separately from the binary operators;
-level 3 describes its binding strength between multiplication and exponentiation.
+Higher precedence levels bind more tightly.
 
-| Precedence | Rule |
+| Precedence | Operators |
 | ---: | --- |
-| 0 | `Expr = AddExpr` |
-| 1 | `AddExpr = MultExpr, { ("+" \| "-"), MultExpr }` |
-| 2 | `MultExpr = UnaryExpr, { ("*" \| "/" \| "%"), UnaryExpr }` |
-| 3 | `UnaryExpr = "-", UnaryExpr \| ExpExpr` |
-| 4 | `ExpExpr = Primary, [ "^", UnaryExpr ]` |
-| 5 | `Primary = "(", Expr, ")" \| Literal \| Variable` |
+| 1 | OR (`;`) |
+| 2 | AND (`,`) |
+| 3 | Comparisons: `=`, `!=`, `<`, `<=`, `>`, `>=` |
+| 4 | `+`, `-` |
+| 5 | `*`, `/`, `%` |
+| 6 | Unary `-` |
+| 7 | `^` |
 
-Here, `Literal` is an integer or string, and `Variable` is an identifier.
-The parser implements unary `-` only. The gap in `precedence` values reserves
-level 3 for unary minus; parsing its operand with minimum precedence 4 lets
-exponentiation bind more tightly, so `-a ^ b` parses as `-(a ^ b)`.
+The grammar can be written by precedence level:
+
+```text
+Expr        = OrExpr ;
+OrExpr      = AndExpr, { OR, AndExpr } ;
+AndExpr     = CompareExpr, { AND, CompareExpr } ;
+CompareExpr = AddExpr, [ CompareOp, AddExpr ] ;
+AddExpr     = MultExpr, { ("+" | "-"), MultExpr } ;
+MultExpr    = UnaryExpr, { ("*" | "/" | "%"), UnaryExpr } ;
+UnaryExpr   = "-", UnaryExpr | PowerExpr ;
+PowerExpr   = Primary, [ "^", UnaryExpr ] ;
+Primary     = "(", Expr, ")"
+            | Lookup
+            | Literal
+            | Variable ;
+Lookup      = ID, "(", [ Expr, { ",", Expr } ], ")" ;
+```
+
+`Literal` is an integer or string, and `Variable` is an identifier. `OR` is
+written `;` and `AND` is written `,` in the input language.
