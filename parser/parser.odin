@@ -60,7 +60,7 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
         has_ahead = false,
         // declared = make(map[string]Relation),
         // inferred = make(map[string]Relation),
-        rules = make([dynamic]Rule, 0, 32, allocator),
+        rules = make([dynamic]Rule, 0, 4, allocator),
         next_id = 1
     }
 }
@@ -98,22 +98,24 @@ print_program :: proc(parser: ^Parser) {
 }
 
 normalize :: proc(parser: ^Parser) {
-    new_rules: [dynamic]Rule
+    new_rules := make([dynamic]Rule, 0, len(parser.rules), parser.allocator)
     for rule in parser.rules {
         normalized_body := normalize_expr(parser, rule.body)
 
-        head: [dynamic]Expr
-        extra: [dynamic]Expr
+        head := make([dynamic]Expr, 0, len(rule.head), parser.allocator)
+        extra := make([dynamic]Expr, 0, 0, parser.allocator)
         for atom in rule.head {
             assert( atom.kind == .Atom )
             normalized := normalize_expr(parser, atom)
             append(&head, normalized.expr)
             append(&extra, ..normalized.extra[:])
         }
-        body := merge_normalized(parser, &normalized_body.expr, extra)
 
+        body := merge_normalized(parser, &normalized_body.expr, normalized_body.extra)
+        body = merge_normalized(parser, &body, extra)
         append(&new_rules, Rule{id = rule.id, head = head, body = body})
     }
+    // delete(parser.rules)
     parser.rules = new_rules
 }
 
@@ -138,16 +140,24 @@ next_token :: proc(parser: ^Parser) -> Token {
 }
 
 @private
-make_expr :: proc(
-    parser: ^Parser, kind: Expr_Kind, op: string, a: ^Expr = nil, b: ^Expr = nil
-) -> Expr {
+make_expr :: proc(parser: ^Parser, kind: Expr_Kind, op: string) -> Expr {
+    return Expr{kind = kind, op = op, args = make([dynamic]Expr, 0, 0, parser.allocator)}
+}
+
+@private
+make_expr1 :: proc(parser: ^Parser, kind: Expr_Kind, op: string, a: Expr) -> Expr {
     e := Expr{kind = kind, op = op}
-    sz := 0
-    if a != nil { sz += 1 }
-    if b != nil { sz += 1 }
-    e.args = make([dynamic]Expr, 0, sz, parser.allocator)
-    if a != nil { append(&e.args, a^) }
-    if b != nil { append(&e.args, b^) }
+    e.args = make([dynamic]Expr, 0, 1, parser.allocator)
+    append(&e.args, a)
+    return e
+}
+
+@private
+make_expr2 :: proc(parser: ^Parser, kind: Expr_Kind, op: string, a: Expr, b: Expr) -> Expr {
+    e := Expr{kind = kind, op = op}
+    e.args = make([dynamic]Expr, 0, 2, parser.allocator)
+    append(&e.args, a)
+    append(&e.args, b)
     return e
 }
 
@@ -249,7 +259,6 @@ precedence :: proc(t: Token) -> int {
 parse_rule :: proc(parser: ^Parser) {
     parser.last_rule_id += 1
     rule := Rule{id = parser.last_rule_id}
-    // rule.head = parse_expr(parser)
     rule.head = make([dynamic]Expr, 0, 1, parser.allocator)
     for {
         atom := parse_operand(parser, .Atom_Only)
@@ -297,14 +306,14 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
     #partial switch t.kind {
     case TK.Int:
         assert( opt != .Atom_Only )
-        return make_expr(parser, .Int, t.val)
+        return Expr{kind = .Int, op = t.val}
     case TK.Str:
         assert( opt != .Atom_Only )
-        return make_expr(parser, .Str, t.val)
+        return Expr{kind = .Str, op = t.val}
     case TK.Identifier:
         if peek_token(parser).kind != TK.Left_Paren {
             assert( opt != .Atom_Only )
-            return make_expr(parser, .Var, t.val)
+            return Expr{kind = .Var, op = t.val}
         }
         assert( opt != .No_Atom )
         next_token(parser)
@@ -328,7 +337,7 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
         assert( opt != .Atom_Only )
         // The precedence level of the unary minus
         base := parse_expr_inner(parser, UNARY_PREC + 1, opt)
-        return make_expr(parser, .Unary, "--", &base)
+        return make_expr1(parser, .Unary, "--", base)
     case:
         fmt.println(t)
         panic("Unexpected leaf kind")
@@ -372,7 +381,7 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
         if (lhs.kind == .And || lhs.kind == .Or) && lhs.kind == kind {
             append(&lhs.args, rhs)
         } else {
-            lhs = make_expr(parser, kind, op.val, &lhs, &rhs)
+            lhs = make_expr2(parser, kind, op.val, lhs, rhs)
         }
     }
     return lhs
@@ -465,50 +474,61 @@ Normalized_Expr :: struct {
 }
 
 @private
+make_norm_expr :: proc(parser: ^Parser, expr: Expr) -> Normalized_Expr {
+    extra := make([dynamic]Expr, 0, 0, parser.allocator)
+    return Normalized_Expr{expr = expr, extra = extra}
+}
+
+@private
 normalize_expr :: proc(parser: ^Parser, e: Expr) -> Normalized_Expr {
     if is_normalized(e) { return Normalized_Expr{expr = e} }
-result: Normalized_Expr
+
     #partial switch e.kind {
     case .Or:
-        result = Normalized_Expr{expr = make_expr(parser, .Or, ";")}
+        result := make_norm_expr(parser, expr = make_expr(parser, .Or, ";"))
         for arg in e.args {
             normalized := normalize_expr(parser, arg)
             final := merge_normalized(parser, &normalized.expr, normalized.extra)
             append(&result.expr.args, final)
         }
+        return result
 
     case .And:
-        result = Normalized_Expr{expr = make_expr(parser, .And, ",")}
+        result := make_norm_expr(parser, expr = make_expr(parser, .And, ","))
         for arg in e.args {
             normalized := normalize_expr(parser, arg)
             append(&result.expr.args, normalized.expr)
             append(&result.expr.args, ..normalized.extra[:])
         }
+        return result
 
     case .Atom:
-        result = Normalized_Expr{expr = make_expr(parser, .Atom, e.op)}
+        result := make_norm_expr(parser, expr = make_expr(parser, .Atom, e.op))
         for arg in e.args {
             normalized := normalize_expr(parser, arg)
             append(&result.expr.args, normalized.expr)
             append(&result.extra, ..normalized.extra[:])
         }
+        return result
 
     case .Binary, .Unary:
+        result := make_norm_expr(parser, expr = Expr{})
         e2 := make_expr(parser, .Atom, e.op)
         for arg in e.args {
             normalized := normalize_expr(parser, arg)
             append(&e2.args, normalized.expr)
             append(&result.extra, ..normalized.extra[:])
         }
+        result.expr = Expr{kind = .Var, op = fmt.tprintf("$%v", parser.next_id)}
         parser.next_id += 1
-        result.expr = make_expr(parser, .Var, fmt.tprintf("$%v", parser.next_id))
         append(&e2.args, result.expr)
         append(&result.extra, e2)
+        return result
 
     case :
         panic("Unexpected")
     }
-    return result
+    unreachable()
 }
 
 @private
@@ -521,7 +541,7 @@ merge_normalized :: proc(parser: ^Parser, e: ^Expr, extra: [dynamic]Expr) -> Exp
         return e^
 
     case .Atom, .Or:
-        e2 := make_expr(parser, .And, "", e)
+        e2 := make_expr1(parser, .And, ",", e^)
         append(&e2.args, ..extra[:])
         return e2
 

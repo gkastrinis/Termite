@@ -35,7 +35,6 @@ to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
         strings.write_byte(&builder, '(')
         for arg, i in e.args {
             if i > 0 { strings.write_string(&builder, ", ") }
-            // if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.op)) }
             strings.write_string(&builder, to_string(p, arg))
         }
         strings.write_byte(&builder, ')')
@@ -45,8 +44,7 @@ to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
 }
 
 @(test)
-test_expressions :: proc(t: ^testing.T) {
-    arena: vmem.Arena
+test_expressions :: proc(t: ^testing.T) { arena: vmem.Arena
     err := vmem.arena_init_growing(&arena)
     assert(err == nil)
     defer vmem.arena_destroy(&arena)
@@ -90,6 +88,51 @@ test_expressions :: proc(t: ^testing.T) {
         p := parser.init(stream, allocator)
         e := parser.parse_expr(&p)
         actual := to_string(&p, e)
+        testing.expect_value(t, actual, expected)
+    }
+}
+
+rule_to_string :: proc(p: ^parser.Parser, rule: parser.Rule) -> string {
+    builder := strings.builder_make(allocator = p.allocator)
+    for arg, i in rule.head {
+        if i > 0 { strings.write_string(&builder, ", ") }
+        strings.write_string(&builder, to_string(p, arg))
+    }
+    strings.write_string(&builder, ": ")
+    strings.write_string(&builder, to_string(p, rule.body))
+    return strings.to_string(builder)
+}
+
+@(test)
+test_rules :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    err := vmem.arena_init_growing(&arena)
+    assert(err == nil)
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+
+    inputs := make(map[string]string, allocator)
+
+    inputs["def foo(x, y): bar(x, y)"] = "foo(x, y): bar(x, y)"
+    inputs["def foo(x): bar(x + 1)"] = "foo(x): (bar($1) , +(x, 1, $1))"
+    inputs["def foo(x * 2): bar(x)"] = "foo($1): (bar(x) , *(x, 2, $1))"
+    inputs["def foo(x): bar(x + 1), baz(x * 2)"] = "foo(x): (bar($1) , +(x, 1, $1) , baz($2) , *(x, 2, $2))"
+    inputs["def foo(x, y), bar(x, y): baz(x, y)"] = "foo(x, y), bar(x, y): baz(x, y)"
+    inputs["def foo(x, y): (bar(x) ; baz(y / 2))"] = "foo(x, y): (bar(x) ; (baz($1) , /(y, 2, $1)))"
+    inputs["def foo(x, y): (bar(x), baz(y / 2)) ; (qux(x), quux(y))"] = "foo(x, y): ((bar(x) , baz($1) , /(y, 2, $1)) ; (qux(x) , quux(y)))"
+
+    for input, expected in inputs {
+        reader := strings.Reader{s = input}
+        stream := strings.reader_to_stream(&reader)
+
+        p := parser.init(stream, allocator)
+        parser.parse(&p)
+        parser.normalize(&p)
+
+        testing.expect_value(t, len(p.rules), 1)
+        rule := p.rules[0]
+
+        actual := rule_to_string(&p, rule)
         testing.expect_value(t, actual, expected)
     }
 }
