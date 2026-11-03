@@ -93,7 +93,6 @@ print_program :: proc(parser: ^Parser) {
     }
     fmt.println()
     for rule in parser.rules {
-        fmt.printf("\x1b[40m#%v\x1b[0m\n", rule.id)
         print_rule(rule)
     }
 }
@@ -317,6 +316,10 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
         // The precedence level of the unary minus
         base := parse_expr_inner(parser, UNARY_PREC + 1, opt)
         return make_expr1(parser, .Unary, "--", base)
+    case TK.True:
+        return Expr{kind = .Atom, op = "$true"}
+    case TK.False:
+        return Expr{kind = .Atom, op = "$false"}
     case:
         fmt.println(t)
         panic("Unexpected leaf kind")
@@ -403,12 +406,12 @@ print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
 
     case .Or:
         print_indent(indent)
-        fmt.println("\x1b[95mUnion\x1b[0m")
+        fmt.println("\x1b[35mUnion\x1b[0m")
         for arg, i in e.args {
             if i > 0 {
                 fmt.println()
                 print_indent(indent+1)
-                fmt.println("----------")
+                fmt.println("\x1b[35m---------\x1b[0m")
             }
             print_expr(arg, color, indent+1)
         }
@@ -445,12 +448,21 @@ print_rel :: proc(rel: Relation) {
 
 @private
 print_rule :: proc(rule: Rule) {
+    fmt.printf("\x1b[40m#%v                  \x1b[0m\n", rule.id)
+    // for atom in rule.head {
+    //     print_expr(atom)
+    //     fmt.println()
+    // }
+    // fmt.println("<--")
+    if !(rule.body.kind == .Atom && rule.body.op == "$true") {
+        print_expr(rule.body, indent = 0)
+        fmt.println()
+    }
     for atom in rule.head {
+        fmt.print("\x1b[45m--> \x1b[0m")
         print_expr(atom)
         fmt.println()
     }
-    fmt.println("<--")
-    print_expr(rule.body, indent = 1)
     fmt.println()
 }
 
