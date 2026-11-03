@@ -15,7 +15,7 @@ main :: proc() {
 
     // input := "def foo(x, y*2) : bar(x, y/2) ; baz(a+1, z)"
     // input := "def foo(x, y) : (bar(x) ; baz(x)), x =1"
-    input := "def foo(x): bar(x + 1)"
+    input := "decl bar(x:int, y:int) def foo(x): bar(x + 1)"
 
     reader := strings.Reader{s = input}
     stream := strings.reader_to_stream(&reader)

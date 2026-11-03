@@ -25,12 +25,12 @@ Expr :: struct {
     args: [dynamic]Expr,
 }
 
-// Relation :: struct {
-//     name: string,
-//     arity: u8,
-//     fields: [dynamic]string,
-//     types: [dynamic]string,
-// }
+Relation :: struct {
+    name: string,
+    arity: u8,
+    fields: [dynamic]string,
+    types: [dynamic]string,
+}
 
 Rule :: struct {
     id: u16,
@@ -45,10 +45,9 @@ Parser :: struct {
     has_ahead: bool,
     ahead: Token,
 
-    // declared: map[string]Relation,
-    // inferred: map[string]Relation,
+    relations: map[string]Relation,
     rules: [dynamic]Rule,
-    last_rule_id: u16,
+    next_rule_id: u16,
 
     next_id: u16,
 }
@@ -58,8 +57,7 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
         allocator = allocator,
         tok = tokenizer.init(stream, allocator),
         has_ahead = false,
-        // declared = make(map[string]Relation),
-        // inferred = make(map[string]Relation),
+        relations = make(map[string]Relation, allocator),
         rules = make([dynamic]Rule, 0, 4, allocator),
         next_id = 1
     }
@@ -71,8 +69,7 @@ parse :: proc(parser: ^Parser) {
         if t.kind == TK.End_Of_File {
             break
         } else if t.kind == TK.Decl {
-            panic("not yet")
-            // parse_decl(parser)
+            parse_decl(parser)
         } else if t.kind == TK.Def {
             parse_rule(parser)
         } else if t.kind == TK.Error {
@@ -91,6 +88,10 @@ parse_expr :: proc(parser: ^Parser) -> Expr {
 }
 
 print_program :: proc(parser: ^Parser) {
+    for _, rel in parser.relations {
+        print_rel(rel)
+    }
+    fmt.println()
     for rule in parser.rules {
         fmt.printf("\x1b[40m#%v\x1b[0m\n", rule.id)
         print_rule(rule)
@@ -115,7 +116,6 @@ normalize :: proc(parser: ^Parser) {
         body = merge_normalized(parser, &body, extra)
         append(&new_rules, Rule{id = rule.id, head = head, body = body})
     }
-    // delete(parser.rules)
     parser.rules = new_rules
 }
 
@@ -222,43 +222,43 @@ precedence :: proc(t: Token) -> int {
 
 ///////////////////////////////////////////////////////////////
 
-// parse_decl :: proc(parser: ^Parser) -> Relation {
-//     t := next_token(parser)
-//     assert( t.kind == .Identifier )
-//
-//     assert(!(t.val in parser.declared))
-//
-//     rel := Relation{name = t.val, arity = 0}
-//
-//     t = next_token(parser)
-//     assert( t.kind == TK.Left_Paren )
-//
-//     for {
-//         name := next_token(parser)
-//         if name.kind == TK.Right_Paren {
-//             break
-//         } else if name.kind == TK.Comma && rel.arity != 0 {
-//             continue
-//         } else if name.kind != TK.Identifier {
-//             fmt.println(t)
-//         }
-//         t = next_token(parser)
-//         assert( t.kind == TK.Colon )
-//         t = next_token(parser)
-//         assert( t.kind == TK.Identifier )
-//
-//         append(&rel.fields, name.val)
-//         append(&rel.types, t.val)
-//         rel.arity += 1
-//     }
-//     parser.declared[rel.name] = rel
-//     return rel
-// }
+parse_decl :: proc(parser: ^Parser) -> Relation {
+    t := next_token(parser)
+    assert( t.kind == .Identifier )
+
+    assert(!(t.val in parser.relations))
+
+    rel := Relation{name = t.val, arity = 0}
+
+    t = next_token(parser)
+    assert( t.kind == TK.Left_Paren )
+
+    for {
+        name := next_token(parser)
+        if name.kind == TK.Right_Paren {
+            break
+        } else if name.kind == TK.Comma && rel.arity != 0 {
+            continue
+        } else if name.kind != TK.Identifier {
+            fmt.println(t)
+        }
+        t = next_token(parser)
+        assert( t.kind == TK.Colon )
+        t = next_token(parser)
+        assert( t.kind == TK.Identifier )
+
+        append(&rel.fields, name.val)
+        append(&rel.types, t.val)
+        rel.arity += 1
+    }
+    parser.relations[rel.name] = rel
+    return rel
+}
 
 @private
 parse_rule :: proc(parser: ^Parser) {
-    parser.last_rule_id += 1
-    rule := Rule{id = parser.last_rule_id}
+    parser.next_rule_id += 1
+    rule := Rule{id = parser.next_rule_id}
     rule.head = make([dynamic]Expr, 0, 1, parser.allocator)
     for {
         atom := parse_operand(parser, .Atom_Only)
@@ -273,27 +273,6 @@ parse_rule :: proc(parser: ^Parser) {
 
     append(&parser.rules, rule)
 }
-
-// @private
-// update_relations :: proc(parser: ^Parser, rule: Rule) {
-//     for e in rule.head {
-//         assert( e.kind == .Atom )
-//         if e.op in parser.declared {
-//             rel := parser.declared[e.op]
-//             assert( rel.arity == u8(len(e.args)) )
-//         } else if e.op in parser.inferred {
-//             rel := parser.inferred[e.op]
-//             assert( rel.arity == u8(len(e.args)) )
-//         } else {
-//             rel := Relation{name = e.op, arity = u8(len(e.args))}
-//             for i in 0..<rel.arity {
-//                 append(&rel.fields, "?")
-//                 append(&rel.types, T_ANY)
-//             }
-//             parser.inferred[e.op] = rel
-//         }
-//     }
-// }
 
 @private
 Operand_Mode :: enum {
@@ -452,6 +431,16 @@ print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
         fmt.print("-")
         print_expr(e.args[0], color)
     }
+}
+
+@private
+print_rel :: proc(rel: Relation) {
+    fmt.printf("\x1b[36m%v\x1b[0m/%v\x1b[30m(", rel.name, rel.arity)
+    for field, i in rel.fields {
+        if i > 0 { fmt.print("\x1b[30m, ") }
+        fmt.printf("\x1b[33m%v\x1b[30m:%v", field, rel.types[i])
+    }
+    fmt.printf("\x1b[30m)\x1b[0m\n")
 }
 
 @private
