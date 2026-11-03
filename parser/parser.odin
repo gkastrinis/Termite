@@ -528,7 +528,6 @@ normalize_expr :: proc(parser: ^Parser, e: Expr) -> Normalized_Expr {
     case :
         panic("Unexpected")
     }
-    unreachable()
 }
 
 @private
