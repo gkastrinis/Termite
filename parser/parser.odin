@@ -3,6 +3,7 @@ package parser
 import "core:fmt"
 import "core:io"
 import "core:mem"
+import "core:strings"
 
 import tokenizer "../tokenizer"
 
@@ -13,8 +14,7 @@ TK :: tokenizer.Token_Kind
 
 Expr_Kind :: enum {
     // Logical Expressions
-    Or, And,
-    Atom, Comparison,
+    Or, And, Atom,
     // Arithmetic Expressions
     Binary, Unary, Int, Str, Var,
 }
@@ -49,6 +49,8 @@ Parser :: struct {
     // inferred: map[string]Relation,
     rules: [dynamic]Rule,
     last_rule_id: u16,
+
+    next_id: u16,
 }
 
 init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
@@ -58,7 +60,8 @@ init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
         has_ahead = false,
         // declared = make(map[string]Relation),
         // inferred = make(map[string]Relation),
-        rules = make([dynamic]Rule, 0, 32, allocator)
+        rules = make([dynamic]Rule, 0, 32, allocator),
+        next_id = 1
     }
 }
 
@@ -87,54 +90,31 @@ parse_expr :: proc(parser: ^Parser) -> Expr {
     return prec_climbing_parse(parser, lhs, 0, .Any_Operand)
 }
 
-///////////////////////////////////////////////////////////////
-
-Paren_Color :: enum {
-    White, Green, Magenta, Grey, Yellow, Cyan
-}
-
-@private
-COLORS := [6]string{"0", "92", "95", "30", "93", "96"}
-
-print_expr :: proc(e: Expr, color: Paren_Color = .White) {
-    switch e.kind {
-    case .Int:
-        fmt.printf("\x1b[32m%v\x1b[0m", e.op)
-    case .Str:
-        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
-    case .Var:
-        fmt.printf("\x1b[33m%v\x1b[0m", e.op)
-    case .Binary, .Comparison, .Or, .And:
-        fmt.printf("\x1b[%sm(\x1b[0m", COLORS[color])
-        for arg, i in e.args {
-            if i > 0 { fmt.printf(" %v ", e.op) }
-            print_expr(arg, Paren_Color((int(color) + 1) % 6))
-        }
-        fmt.printf("\x1b[%sm)\x1b[0m", COLORS[color])
-    case .Unary:
-        assert( len(e.args) == 1 )
-        fmt.print("-")
-        print_expr(e.args[0], color)
-    case .Atom:
-        fmt.printf("\x1b[34m%v\x1b[0m(", e.op)
-        for arg, i in e.args {
-            if i > 0 { fmt.printf(", ") }
-            print_expr(arg, Paren_Color((int(color) + 1) % 6))
-        }
-        fmt.print(")")
-    }
-}
-
 print_program :: proc(parser: ^Parser) {
     for rule in parser.rules {
         fmt.printf("\x1b[40m#%v\x1b[0m\n", rule.id)
-        for atom, i in rule.head {
-            if i > 0 { fmt.print(", ") }
-            print_expr(atom)
-        }
-        fmt.println(" <-")
-        print_expr(rule.body)
+        print_rule(rule)
     }
+}
+
+normalize :: proc(parser: ^Parser) {
+    new_rules: [dynamic]Rule
+    for rule in parser.rules {
+        normalized_body := normalize_expr(parser, rule.body)
+
+        head: [dynamic]Expr
+        extra: [dynamic]Expr
+        for atom in rule.head {
+            assert( atom.kind == .Atom )
+            normalized := normalize_expr(parser, atom)
+            append(&head, normalized.expr)
+            append(&extra, ..normalized.extra[:])
+        }
+        body := merge_normalized(parser, &normalized_body.expr, extra)
+
+        append(&new_rules, Rule{id = rule.id, head = head, body = body})
+    }
+    parser.rules = new_rules
 }
 
 ///////////////////////////////////////////////////////////////
@@ -175,7 +155,7 @@ make_expr :: proc(
 to_expr_kind :: proc(t: Token) -> Expr_Kind {
     #partial switch t.kind {
     case TK.Equal, TK.Not_Equal, TK.Less_Than, TK.Less_Than_Or_Equal, TK.Greater_Than, TK.Greater_Than_Or_Equal:
-        return .Comparison
+        return .Atom
     case TK.Semicolon:
         return .Or
     case TK.Comma:
@@ -269,8 +249,8 @@ precedence :: proc(t: Token) -> int {
 parse_rule :: proc(parser: ^Parser) {
     parser.last_rule_id += 1
     rule := Rule{id = parser.last_rule_id}
+    // rule.head = parse_expr(parser)
     rule.head = make([dynamic]Expr, 0, 1, parser.allocator)
-
     for {
         atom := parse_operand(parser, .Atom_Only)
         assert( atom.kind == .Atom )
@@ -350,6 +330,7 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
         base := parse_expr_inner(parser, UNARY_PREC + 1, opt)
         return make_expr(parser, .Unary, "--", &base)
     case:
+        fmt.println(t)
         panic("Unexpected leaf kind")
     }
 }
@@ -395,4 +376,172 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
         }
     }
     return lhs
+}
+
+///////////////////////////////////////////////////////////////
+
+Paren_Color :: enum {
+    White, Green, Magenta, Grey, Yellow, Cyan
+}
+
+@private
+COLORS := [6]string{"0", "92", "95", "30", "93", "96"}
+
+@private
+print_indent :: proc(indent: int) {
+    for _ in 0..<indent { fmt.print("    ") }
+}
+
+print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
+    switch e.kind {
+    case .Int:
+        fmt.printf("\x1b[32m%v\x1b[0m", e.op)
+    case .Str:
+        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
+    case .Var:
+        if e.op[0] == '$' {
+            fmt.printf("\x1b[95m%v\x1b[0m", e.op)
+        } else {
+            fmt.printf("\x1b[33m%v\x1b[0m", e.op)
+        }
+    case .Atom:
+        print_indent(indent)
+        fmt.printf("\x1b[34m%v\x1b[30m(\x1b[0m", e.op)
+        for arg, i in e.args {
+            if i > 0 { fmt.print("\x1b[30m, \x1b[0m") }
+            print_expr(arg, Paren_Color((int(color) + 1) % 6))
+        }
+        fmt.print("\x1b[30m)\x1b[0m")
+
+    case .Or:
+        print_indent(indent)
+        fmt.println("\x1b[95mUnion\x1b[0m")
+        for arg, i in e.args {
+            if i > 0 {
+                fmt.println()
+                print_indent(indent+1)
+                fmt.println("----------")
+            }
+            print_expr(arg, color, indent+1)
+        }
+
+    case .And:
+        for arg, i in e.args {
+            if i > 0 { fmt.println() }
+            print_expr(arg, color, indent)
+        }
+
+    case .Binary:
+        fmt.printf("\x1b[%sm(\x1b[0m", COLORS[color])
+        for arg, i in e.args {
+            if i > 0 { fmt.printf(" %v ", e.op) }
+            print_expr(arg, Paren_Color((int(color) + 1) % 6))
+        }
+        fmt.printf("\x1b[%sm)\x1b[0m", COLORS[color])
+    case .Unary:
+        assert( len(e.args) == 1 )
+        fmt.print("-")
+        print_expr(e.args[0], color)
+    }
+}
+
+@private
+print_rule :: proc(rule: Rule) {
+    for atom in rule.head {
+        print_expr(atom)
+        fmt.println()
+    }
+    fmt.println("<--")
+    print_expr(rule.body, indent = 1)
+    fmt.println()
+}
+
+///////////////////////////////////////////////////////////////
+
+@private
+Normalized_Expr :: struct {
+    expr: Expr,
+    extra: [dynamic]Expr
+}
+
+@private
+normalize_expr :: proc(parser: ^Parser, e: Expr) -> Normalized_Expr {
+    if is_normalized(e) { return Normalized_Expr{expr = e} }
+result: Normalized_Expr
+    #partial switch e.kind {
+    case .Or:
+        result = Normalized_Expr{expr = make_expr(parser, .Or, ";")}
+        for arg in e.args {
+            normalized := normalize_expr(parser, arg)
+            final := merge_normalized(parser, &normalized.expr, normalized.extra)
+            append(&result.expr.args, final)
+        }
+
+    case .And:
+        result = Normalized_Expr{expr = make_expr(parser, .And, ",")}
+        for arg in e.args {
+            normalized := normalize_expr(parser, arg)
+            append(&result.expr.args, normalized.expr)
+            append(&result.expr.args, ..normalized.extra[:])
+        }
+
+    case .Atom:
+        result = Normalized_Expr{expr = make_expr(parser, .Atom, e.op)}
+        for arg in e.args {
+            normalized := normalize_expr(parser, arg)
+            append(&result.expr.args, normalized.expr)
+            append(&result.extra, ..normalized.extra[:])
+        }
+
+    case .Binary, .Unary:
+        e2 := make_expr(parser, .Atom, e.op)
+        for arg in e.args {
+            normalized := normalize_expr(parser, arg)
+            append(&e2.args, normalized.expr)
+            append(&result.extra, ..normalized.extra[:])
+        }
+        parser.next_id += 1
+        result.expr = make_expr(parser, .Var, fmt.tprintf("$%v", parser.next_id))
+        append(&e2.args, result.expr)
+        append(&result.extra, e2)
+
+    case :
+        panic("Unexpected")
+    }
+    return result
+}
+
+@private
+merge_normalized :: proc(parser: ^Parser, e: ^Expr, extra: [dynamic]Expr) -> Expr {
+    if len(extra) == 0 { return e^ }
+
+    #partial switch e.kind {
+    case .And:
+        append(&e.args, ..extra[:])
+        return e^
+
+    case .Atom, .Or:
+        e2 := make_expr(parser, .And, "", e)
+        append(&e2.args, ..extra[:])
+        return e2
+
+    case :
+        panic("Unexpected")
+    }
+}
+
+@private
+is_normalized :: proc(e: Expr) -> bool {
+    switch e.kind {
+    case .Var, .Int, .Str:
+        return true
+    case .Atom, .And, .Or:
+        for arg in e.args {
+            if !is_normalized(arg) { return false }
+        }
+        return true
+    case .Binary, .Unary:
+        return false
+    }
+    unreachable()
 }

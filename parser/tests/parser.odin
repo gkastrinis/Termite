@@ -15,7 +15,7 @@ to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
     case parser.Expr_Kind.Unary:
         assert( len(e.args) == 1 )
         return fmt.tprintf("-%v", to_string(p, e.args[0]))
-    case parser.Expr_Kind.Binary, parser.Expr_Kind.Comparison:
+    case parser.Expr_Kind.Binary:
         assert( len(e.args) == 2 )
         a := to_string(p, e.args[0])
         b := to_string(p, e.args[1])
@@ -30,7 +30,16 @@ to_string :: proc(p: ^parser.Parser, e: parser.Expr) -> string {
         strings.write_byte(&builder, ')')
         return strings.to_string(builder)
     case parser.Expr_Kind.Atom:
-        panic("not handled")
+        builder := strings.builder_make(allocator = p.allocator)
+        strings.write_string(&builder, e.op)
+        strings.write_byte(&builder, '(')
+        for arg, i in e.args {
+            if i > 0 { strings.write_string(&builder, ", ") }
+            // if i > 0 { strings.write_string(&builder, fmt.tprintf(" %v ", e.op)) }
+            strings.write_string(&builder, to_string(p, arg))
+        }
+        strings.write_byte(&builder, ')')
+        return strings.to_string(builder)
     }
     unreachable()
 }
@@ -60,16 +69,16 @@ test_expressions :: proc(t: ^testing.T) {
     inputs["-a ^ b"] = "-(a ^ b)"
     inputs["a ^ -b"] = "(a ^ -b)"
 
-    inputs["a = b"] = "(a = b)"
-    inputs["a + 1 < b * 2"] = "((a + 1) < (b * 2))"
-    inputs["a < b, c = d"] = "((a < b) , (c = d))"
-    inputs["a = b ; c != d"] = "((a = b) ; (c != d))"
+    inputs["a = b"] = "=(a, b)"
+    inputs["a + 1 < b * 2"] = "<((a + 1), (b * 2))"
+    inputs["a < b, c = d"] = "(<(a, b) , =(c, d))"
+    inputs["a = b ; c != d"] = "(=(a, b) ; !=(c, d))"
     inputs["a ; b, c"] = "(a ; (b , c))"
     inputs["a, b ; c, d"] = "((a , b) ; (c , d))"
     inputs["(a ; b), c"] = "((a ; b) , c)"
-    inputs["a < b ; c < d, e >= f"] = "((a < b) ; ((c < d) , (e >= f)))"
-    inputs["x > 1, y > 2, z > 3"] = "((x > 1) , (y > 2) , (z > 3))"
-    inputs["x > 1, y > 2; z > 3"] = "(((x > 1) , (y > 2)) ; (z > 3))"
+    inputs["a < b ; c < d, e >= f"] = "(<(a, b) ; (<(c, d) , >=(e, f)))"
+    inputs["x > 1, y > 2, z > 3"] = "(>(x, 1) , >(y, 2) , >(z, 3))"
+    inputs["x > 1, y > 2; z > 3"] = "((>(x, 1) , >(y, 2)) ; >(z, 3))"
 
     // TODO: this should fail
     // inputs["(x > 1) ; (x + 1)"] = ..
