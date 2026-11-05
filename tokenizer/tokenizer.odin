@@ -1,22 +1,31 @@
 package tokenizer
 
 import "core:io"
+import "core:fmt"
 import "core:mem"
 import "core:unicode/utf8"
 
 Token_Kind :: enum {
+    Error, End_Of_File,
     True, False, Def, Decl,
     Left_Paren, Right_Paren,
     Comma, Semicolon, Colon,
     Equal, Not_Equal, Less_Than, Less_Than_Or_Equal, Greater_Than, Greater_Than_Or_Equal,
     Plus, Minus, Multiply, Divide, Modulo, Power,
     Identifier, Str, Int,
-    Error, End_Of_File,
 }
 
 Token :: struct {
     kind: Token_Kind,
-    val: string
+    val: string,
+    range: Range,
+}
+
+Range :: struct {
+    start_row: u32,
+    start_col: u32,
+    stop_row: u32,
+    stop_col: u32,
 }
 
 Tokenizer :: struct {
@@ -26,34 +35,46 @@ Tokenizer :: struct {
     ahead: rune,
     ahead_error: io.Error,
     has_ahead: bool,
+
+    snap_row: u32,
+    snap_col: u32,
+    curr_row: u32,
+    curr_col: u32,
+    input_lines: [dynamic]string,
+    curr_line: [dynamic]rune,
+
     buffer: [dynamic]rune,
-    in_error: bool
+    in_error: bool,
 }
 
 init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Tokenizer {
-    buffer := make([dynamic]rune, 0, 64, allocator)
     return Tokenizer{
         stream = stream,
         allocator = allocator,
-        buffer = buffer,
-        ahead_error = nil,
+        buffer = make([dynamic]rune, 0, 64, allocator),
         has_ahead = false,
+        ahead_error = nil,
+        curr_row = 1,
+        curr_col = 1,
         in_error = false,
     }
 }
 
 next_token :: proc(tok: ^Tokenizer) -> Token {
-    if tok.in_error { return Token{kind = .Error, val = "PREV_ERR"} }
+    snap_pos(tok)
+    if tok.in_error { return register_token(tok, .Error, "PREV_ERR") }
 
     for {
         r, err := peek_rune(tok)
-        if err != nil { return Token{kind = .End_Of_File, val = ""} }
+        if err != nil { return register_token(tok, .End_Of_File, "") }
         if is_whitespace(r) {
             next_rune(tok)
+            snap_pos(tok)
             continue
         }
         if r == '/' {
-            if tok_divide(tok) { return Token{kind = .Divide, val = "/"} }
+            if tok_divide(tok) { return register_token(tok, .Divide, "/") }
+            snap_pos(tok)
             continue
         }
 
@@ -74,10 +95,31 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
             next_rune(tok)
             append(&tok.buffer, r)
             tok.in_error = true
-            return Token{kind = .Error, val = buffer_to_str(tok)}
+            return register_token(tok, .Error, buffer_to_str(tok))
         }
     }
     unreachable()
+}
+
+print_token :: proc(tok: ^Tokenizer, t: Token) {
+    line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
+    fmt.println(line)
+    fmt.printf(
+        "\x1b[33m%v \x1b[35m<%v>\x1b[30m %v:%v-%v:%v\x1b[0m",
+        t.kind, t.val,
+        t.range.start_row, t.range.start_col, t.range.stop_row, t.range.stop_col,
+    )
+}
+
+input_line :: proc(tok: ^Tokenizer, i: int) -> string {
+    completed := len(tok.input_lines)
+    if i <= completed {
+        return tok.input_lines[i]
+    } else if i == completed + 1 {
+        line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
+        return line
+    }
+    panic("wrong line requested")
 }
 
 ///////////////////////////////////////////////////////////////
@@ -120,11 +162,14 @@ is_id_main :: proc(r: rune) -> bool {
 }
 
 @private
+snap_pos :: proc(tok: ^Tokenizer) {
+    tok.snap_row, tok.snap_col = tok.curr_row, tok.curr_col
+}
+
+@private
 peek_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
     if !tok.has_ahead {
-        r, _, err := io.read_rune(tok.stream)
-        tok.ahead = r
-        tok.ahead_error = err
+        tok.ahead, _, tok.ahead_error = io.read_rune(tok.stream)
         tok.has_ahead = true
     }
     return tok.ahead, tok.ahead_error
@@ -132,15 +177,42 @@ peek_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
 
 @private
 next_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
+    r: rune
+    err: io.Error
     if tok.has_ahead {
-        r := tok.ahead
-        err := tok.ahead_error
-        tok.ahead_error = nil
+        r, err = tok.ahead, tok.ahead_error
         tok.has_ahead = false
-        return r, err
+    } else {
+        r, _, err = io.read_rune(tok.stream)
     }
-    r, _, err := io.read_rune(tok.stream)
+
+    if r == '\n' {
+        tok.curr_row += 1
+        tok.curr_col = 1
+    } else {
+        tok.curr_col += 1
+    }
+    append(&tok.curr_line, r)
+    if r == '\n' {
+        line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
+        clear(&tok.curr_line)
+        append(&tok.input_lines, line)
+    }
     return r, err
+}
+
+@private
+register_token :: proc(tok: ^Tokenizer, kind: Token_Kind, val: string) -> Token {
+    return Token{
+        kind = kind,
+        val = val,
+        range = Range{
+            start_row = tok.snap_row,
+            start_col = tok.snap_col,
+            stop_row = tok.curr_row,
+            stop_col = tok.curr_col,
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////
@@ -166,14 +238,14 @@ tok_string :: proc(tok: ^Tokenizer) -> Token {
         r, err := peek_rune(tok)
         if err != nil {
             tok.in_error = true
-            return Token{kind = .Error, val = buffer_to_str(tok)}
+            return register_token(tok, .Error, buffer_to_str(tok))
         } else if in_backslash {
             in_backslash = false
         } else if r == '\\' {
             in_backslash = true
         } else if r == '"' {
             next_rune(tok)
-            return Token{kind = .Str, val = buffer_to_str(tok)}
+            return register_token(tok, .Str, buffer_to_str(tok))
         }
         next_rune(tok)
         append(&tok.buffer, r)
@@ -194,8 +266,8 @@ tok_number :: proc(tok: ^Tokenizer) -> Token {
         }
     }
     str := buffer_to_str(tok)
-    if tok.in_error { return Token{kind = .Error, val = str} }
-    return Token{kind = .Int, val = str}
+    if tok.in_error { return register_token(tok, .Error, str) }
+    return register_token(tok, .Int, str)
 }
 
 @private
@@ -212,13 +284,13 @@ tok_id_like :: proc(tok: ^Tokenizer) -> Token {
         }
     }
     str := buffer_to_str(tok)
-    if tok.in_error { return Token{kind = .Error, val = str} }
+    if tok.in_error { return register_token(tok, .Error, str) }
     switch str {
-    case "def"  : return Token{kind = .Def, val = str}
-    case "decl" : return Token{kind = .Decl, val = str}
-    case "true" : return Token{kind = .True, val = str}
-    case "false": return Token{kind = .False, val = str}
-    case        : return Token{kind = .Identifier, val = str}
+    case "def"  : return register_token(tok, .Def, str)
+    case "decl" : return register_token(tok, .Decl, str)
+    case "true" : return register_token(tok, .True, str)
+    case "false": return register_token(tok, .False, str)
+    case        : return register_token(tok, .Identifier, str)
     }
 }
 
@@ -226,18 +298,18 @@ tok_id_like :: proc(tok: ^Tokenizer) -> Token {
 tok_boundary :: proc(tok: ^Tokenizer) -> Token {
     r, _ := next_rune(tok)
     switch r {
-    case '(': return Token{kind = .Left_Paren, val = "("}
-    case ')': return Token{kind = .Right_Paren, val = ")"}
-    case ',': return Token{kind = .Comma, val = ","}
-    case ':': return Token{kind = .Colon, val = ":"}
-    case ';': return Token{kind = .Semicolon, val = ";"}
-    case '+': return Token{kind = .Plus, val = "+"}
-    case '-': return Token{kind = .Minus, val = "-"}
-    case '*': return Token{kind = .Multiply, val = "*"}
-    case '/': return Token{kind = .Divide, val = "/"}
-    case '%': return Token{kind = .Modulo, val = "%"}
-    case '^': return Token{kind = .Power, val = "^"}
-    case '=': return Token{kind = .Equal, val = "="}
+    case '(': return register_token(tok, .Left_Paren, "(")
+    case ')': return register_token(tok, .Right_Paren, ")")
+    case ',': return register_token(tok, .Comma, ",")
+    case ':': return register_token(tok, .Colon, ":")
+    case ';': return register_token(tok, .Semicolon, ";")
+    case '+': return register_token(tok, .Plus, "+")
+    case '-': return register_token(tok, .Minus, "-")
+    case '*': return register_token(tok, .Multiply, "*")
+    case '/': return register_token(tok, .Divide, "/")
+    case '%': return register_token(tok, .Modulo, "%")
+    case '^': return register_token(tok, .Power, "^")
+    case '=': return register_token(tok, .Equal, "=")
     case '!':
         rr, err := next_rune(tok)
         if err != nil {
@@ -246,26 +318,26 @@ tok_boundary :: proc(tok: ^Tokenizer) -> Token {
             append(&tok.buffer, r)
             append(&tok.buffer, rr)
         } else {
-            return Token{kind = .Not_Equal, val = "!="}
+            return register_token(tok, .Not_Equal, "!=")
         }
     case '<':
         rr, err := peek_rune(tok)
         if err == nil && rr == '=' {
             next_rune(tok)
-            return Token{kind = .Less_Than_Or_Equal, val = "<="}
+            return register_token(tok, .Less_Than_Or_Equal, "<=")
         }
-        return Token{kind = .Less_Than, val = "<"}
+        return register_token(tok, .Less_Than, "<")
     case '>':
         rr, err := peek_rune(tok)
         if err == nil && rr == '=' {
             next_rune(tok)
-            return Token{kind = .Greater_Than_Or_Equal, val = ">="}
+            return register_token(tok, .Greater_Than_Or_Equal, ">=")
         }
-        return Token{kind = .Greater_Than, val = ">"}
+        return register_token(tok, .Greater_Than, ">")
     case:
         append(&tok.buffer, r)
     }
 
     tok.in_error = true
-    return Token{kind = .Error, val = buffer_to_str(tok)}
+    return register_token(tok, .Error, buffer_to_str(tok))
 }

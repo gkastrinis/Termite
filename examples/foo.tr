@@ -12,7 +12,6 @@ def ancestor(x, y), grandparent(x, z, y):
     parent (z, y)
 
 // def ancestor(to=y, from=x): ...
-
 //type Var(name:Str)
 //decl Var.type(t:Str)
 
@@ -28,6 +27,10 @@ def foo(x, y): ((x=1, y=2); (x=2, y=3))
 
 // foo = (x, y): {(1, 2), (2, 3)}
 // ancestor = (x, y): parent(x, y)
+
+def foo():
+    bar(), x > 1 < 2 * 10
+
 
 //def ancestor2 {
 //    {(x, y): parent(x, y)},

@@ -11,8 +11,12 @@ import tokenizer "../tokenizer"
 Token :: tokenizer.Token
 @private
 TK :: tokenizer.Token_Kind
+@private
+T_Range :: tokenizer.Range
 
 Expr_Kind :: enum {
+    // Expression with parser errors
+    Error,
     // Logical Expressions
     Or, And, Atom,
     // Arithmetic Expressions
@@ -23,6 +27,9 @@ Expr :: struct {
     kind: Expr_Kind,
     op: string,
     args: [dynamic]Expr,
+
+    a: Token,
+    b: Token,
 }
 
 Relation :: struct {
@@ -135,7 +142,10 @@ next_token :: proc(parser: ^Parser) -> Token {
         parser.has_ahead = false
         return parser.ahead
     }
-    return tokenizer.next_token(&parser.tok)
+    t := tokenizer.next_token(&parser.tok)
+    // tokenizer.print_token(&parser.tok, t)
+    // fmt.println()
+    return t
 }
 
 @private
@@ -255,6 +265,16 @@ parse_decl :: proc(parser: ^Parser) -> Relation {
 }
 
 @private
+is_top_level_token :: proc(t: Token) -> bool {
+    #partial switch t.kind {
+    case .Decl, .Def, .End_Of_File:
+        return true
+    case :
+        return false
+    }
+}
+
+@private
 parse_rule :: proc(parser: ^Parser) {
     parser.next_rule_id += 1
     rule := Rule{id = parser.next_rule_id}
@@ -270,6 +290,13 @@ parse_rule :: proc(parser: ^Parser) {
     assert( next_token(parser).kind == TK.Colon )
     rule.body = parse_expr(parser)
 
+    if rule.body.kind == .Error {
+        for {
+            if is_top_level_token(peek_token(parser)) { return }
+            next_token(parser)
+        }
+    }
+
     append(&parser.rules, rule)
 }
 
@@ -284,42 +311,53 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
     #partial switch t.kind {
     case TK.Int:
         assert( opt != .Atom_Only )
-        return Expr{kind = .Int, op = t.val}
+        e := Expr{kind = .Int, op = t.val, a = t, b = t}
+        return e
     case TK.Str:
         assert( opt != .Atom_Only )
-        return Expr{kind = .Str, op = t.val}
+        e := Expr{kind = .Str, op = t.val, a = t, b = t}
+        return e
+
     case TK.Identifier:
         if peek_token(parser).kind != TK.Left_Paren {
             assert( opt != .Atom_Only )
-            return Expr{kind = .Var, op = t.val}
+            return Expr{kind = .Var, op = t.val, a = t, b = t}
         }
         assert( opt != .No_Atom )
         next_token(parser)
         atom := make_expr(parser, .Atom, t.val)
+        t2: Token
         for {
             if peek_token(parser).kind == TK.Right_Paren {
-                next_token(parser)
+                t2 = next_token(parser)
                 break
             }
             e := parse_expr_inner(parser, ARITHMETIC_PREC, .No_Atom)
             append(&atom.args, e)
             if peek_token(parser).kind == TK.Comma { next_token(parser) }
         }
+        atom.a, atom.b = t, t2
         return atom
+
     case TK.Left_Paren:
         assert( opt != .Atom_Only )
         e := parse_expr_inner(parser, 0, opt)
-        assert( next_token(parser).kind == TK.Right_Paren )
+        t2 := next_token(parser)
+        assert( t2.kind == TK.Right_Paren )
+        e.a, e.b = t, t2
         return e
+
     case TK.Minus:
         assert( opt != .Atom_Only )
         // The precedence level of the unary minus
         base := parse_expr_inner(parser, UNARY_PREC + 1, opt)
         return make_expr1(parser, .Unary, "--", base)
+
     case TK.True:
         return Expr{kind = .Atom, op = "$true"}
     case TK.False:
         return Expr{kind = .Atom, op = "$false"}
+
     case:
         fmt.println(t)
         panic("Unexpected leaf kind")
@@ -333,6 +371,26 @@ parse_expr_inner :: proc(parser: ^Parser, min_prec: int, opt: Operand_Mode) -> E
 }
 
 @private
+parse_error :: proc(parser: ^Parser, err: Expr, t: Token, msg: string) -> Expr {
+    fmt.printf("\n\x1b[41m  Parse Error  \x1b[0m\n%v\n", msg)
+
+    line := tokenizer.input_line(&parser.tok, int(err.args[0].a.range.start_row))
+    fmt.printf("\n%v\x1b[31m%v\x1b[0m\n",
+        line[0:t.range.start_col-1], t.val)
+
+    foo := true
+    for i in 0..< err.args[0].a.range.start_col-1 {
+        fmt.print(' ')
+    }
+    for i in err.args[0].a.range.start_col-1..<t.range.start_col-1 {
+        fmt.print('~')
+    }
+    fmt.println("^")
+
+    return err
+}
+
+@private
 prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Operand_Mode) -> Expr {
     lhs := lhs_
     non_assoc_found := false
@@ -342,7 +400,11 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
         if !((is_non_assoc(ahead) && ahead_prec > min_prec) || ahead_prec >= min_prec ) {
             return lhs
         }
-        if non_assoc_found && is_non_assoc(ahead) { return lhs }
+        if non_assoc_found && is_non_assoc(ahead) {
+            err := make_expr1(parser, .Error, "", lhs)
+            msg := "Chaining of comparison operators is not supported"
+            return parse_error(parser, err, ahead, msg)
+        }
         if is_non_assoc(ahead) { non_assoc_found = true }
 
         op := next_token(parser)
@@ -356,14 +418,19 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
             }
             new_prec := op_prec + (ahead_prec > op_prec ? 1 : 0)
             rhs = prec_climbing_parse(parser, rhs, new_prec, opt)
+            if rhs.kind == .Error { return rhs }
             ahead = peek_token(parser)
         }
+
         // Flatten And, Or
         kind := to_expr_kind(op)
         if (lhs.kind == .And || lhs.kind == .Or) && lhs.kind == kind {
             append(&lhs.args, rhs)
+            lhs.b = rhs.b
         } else {
+            old_lhs := lhs
             lhs = make_expr2(parser, kind, op.val, lhs, rhs)
+            lhs.a, lhs.b = old_lhs.a, rhs.b
         }
     }
     return lhs
@@ -384,7 +451,7 @@ print_indent :: proc(indent: int) {
 }
 
 print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
-    switch e.kind {
+    #partial switch e.kind {
     case .Int:
         fmt.printf("\x1b[32m%v\x1b[0m", e.op)
     case .Str:
@@ -552,7 +619,7 @@ merge_normalized :: proc(parser: ^Parser, e: ^Expr, extra: [dynamic]Expr) -> Exp
 
 @private
 is_normalized :: proc(e: Expr) -> bool {
-    switch e.kind {
+    #partial switch e.kind {
     case .Var, .Int, .Str:
         return true
     case .Atom, .And, .Or:
