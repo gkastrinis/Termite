@@ -5,6 +5,10 @@ import "core:fmt"
 import "core:mem"
 import "core:unicode/utf8"
 
+import terminal "../terminal"
+
+clr :: terminal
+
 Token_Kind :: enum {
     Error, End_Of_File,
     True, False, Def, Decl,
@@ -101,9 +105,15 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
 
 print_token :: proc(t: Token) {
     fmt.printf(
-        "\x1b[33m%v \x1b[35m<%v>\x1b[30m %v:%v-%v:%v\x1b[0m",
-        t.kind, t.val,
+        "%v%v %v<%v>%v %v:%v-%v:%v%v",
+        clr.TOKEN_KIND,
+        t.kind,
+        clr.TOKEN_VALUE,
+        t.val,
+        clr.RESET,
+        clr.LOCATION,
         t.range.start_row, t.range.start_col, t.range.stop_row, t.range.stop_col,
+        clr.RESET,
     )
 }
 

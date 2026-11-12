@@ -7,6 +7,9 @@ import "core:os"
 import "core:strings"
 
 import tokenizer "../tokenizer"
+import terminal "../terminal"
+
+clr :: terminal
 
 @private
 Token :: tokenizer.Token
@@ -109,10 +112,10 @@ parse :: proc(parser: ^Parser) {
         } else if t.kind == TK.Def {
             parse_rule(parser)
         } else if t.kind == TK.Error {
-            fmt.printf("%v\x1b[0m \x1b[31m<%v> \x1b[0m", t.val, t.kind)
+            fmt.printf("%v%v %v<%v> %v", t.val, clr.RESET, clr.ERROR, t.kind, clr.RESET)
             break
         } else {
-            fmt.printf("%v\x1b[0m \x1b[30m<%v> \x1b[0m", t.val, t.kind)
+            fmt.printf("%v%v %v<%v> %v", t.val, clr.RESET, clr.LOCATION, t.kind, clr.RESET)
             panic("waaat")
         }
     }
@@ -385,8 +388,7 @@ parse_operand :: proc(parser: ^Parser, opt: Operand_Mode) -> Expr {
         return Expr{kind = .Atom, op = "$false"}
 
     case:
-        fmt.println(t)
-        panic("Unexpected leaf kind")
+        return parse_error(parser, Expr{kind = .Error}, t, "Unexpected symbol")
     }
 }
 
@@ -397,22 +399,41 @@ parse_expr_inner :: proc(parser: ^Parser, min_prec: int, opt: Operand_Mode) -> E
 }
 
 @private
-parse_error :: proc(parser: ^Parser, err: Expr, t: Token, msg: string) -> Expr {
-    fmt.printf("\x1b[36m%v\x1b[30m(%v:%v)\x1b[0m \x1b[41m Parse Error \x1b[0m %v\n",
+parse_error :: proc(parser: ^Parser, err: Expr, t: Token, msg: string, hint: string="") -> Expr {
+    fmt.printf("%v%v%v(%v:%v)%v %v Parse Error %v %v\n",
+        clr.FILE,
         parser.source.name,
+        clr.LOCATION,
         t.range.start_row,
         t.range.start_col,
+        clr.RESET,
+        clr.ERROR_LABEL,
+        clr.RESET,
         msg)
 
-    line := parser.source.lines[int(err.args[0].a.range.start_row)-1]
-    start, stop := t.range.start_col-1, t.range.stop_col-1
+    start, stop := int(t.range.start_col-1), int(t.range.stop_col-1)
 
-    fmt.printf("%v\x1b[31m%v\x1b[0m%v\n", line[0:start], line[start:stop], line[stop:])
+    row: int
+    space_stop: int
+    if len(err.args) > 0 {
+        row = int(err.args[0].a.range.start_row) - 1
+        space_stop = int(err.args[0].a.range.start_col) - 1
+    } else {
+        row = int(t.range.start_row) - 1
+        space_stop = int(start)
+    }
 
-    for i in 0..< err.args[0].a.range.start_col-1 { fmt.print(' ') }
-    for i in err.args[0].a.range.start_col-1..<start { fmt.print('~') }
+    line := parser.source.lines[row]
+    fmt.printf("%v%v%v%v%v\n", line[0:start], clr.ERROR, line[start:stop], clr.RESET, line[stop:])
+
+    for i in 0..< space_stop { fmt.print(' ') }
+    fmt.print(clr.ERROR)
+    for i in space_stop..<start { fmt.print('~') }
     for i in start..<stop { fmt.print('^') }
+    fmt.print(clr.RESET)
     fmt.println()
+
+    if hint != "" { fmt.printf("%v%v%v\n", clr.HINT, hint, clr.RESET) }
 
     return err
 }
@@ -430,7 +451,8 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
         if non_assoc_found && is_non_assoc(ahead) {
             err := make_expr1(parser, .Error, "", lhs)
             msg := "Unsupported comparison chaining"
-            return parse_error(parser, err, ahead, msg)
+            hint := "Break them up!"
+            return parse_error(parser, err, ahead, msg, hint)
         }
         if is_non_assoc(ahead) { non_assoc_found = true }
 
@@ -470,42 +492,40 @@ Paren_Color :: enum {
 }
 
 @private
-COLORS := [6]string{"0", "92", "95", "30", "93", "96"}
-
-@private
 print_indent :: proc(indent: int) {
     for _ in 0..<indent { fmt.print("    ") }
 }
 
 print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
+    paren_colors := clr.PAREN_COLORS
     #partial switch e.kind {
     case .Int:
-        fmt.printf("\x1b[32m%v\x1b[0m", e.op)
+        fmt.printf("%v%v%v", clr.DEBUG_INT, e.op, clr.RESET)
     case .Str:
-        fmt.printf("\x1b[32m\"%v\"\x1b[0m", e.op)
+        fmt.printf("%v\"%v\"%v", clr.DEBUG_STRING, e.op, clr.RESET)
     case .Var:
         if e.op[0] == '$' {
-            fmt.printf("\x1b[95m%v\x1b[0m", e.op)
+            fmt.printf("%v%v%v", clr.DEBUG_NAME, e.op, clr.RESET)
         } else {
-            fmt.printf("\x1b[33m%v\x1b[0m", e.op)
+            fmt.printf("%v%v%v", clr.DEBUG_OP, e.op, clr.RESET)
         }
     case .Atom:
         print_indent(indent)
-        fmt.printf("\x1b[34m%v\x1b[30m(\x1b[0m", e.op)
+        fmt.printf("%v%v%v(%v", clr.DEBUG_LOOKUP, e.op, clr.LOCATION, clr.RESET)
         for arg, i in e.args {
-            if i > 0 { fmt.print("\x1b[30m, \x1b[0m") }
+            if i > 0 { fmt.printf("%v, %v", clr.LOCATION, clr.RESET) }
             print_expr(arg, Paren_Color((int(color) + 1) % 6))
         }
-        fmt.print("\x1b[30m)\x1b[0m")
+        fmt.printf("%v)%v", clr.LOCATION, clr.RESET)
 
     case .Or:
         print_indent(indent)
-        fmt.println("\x1b[35mUnion\x1b[0m")
+        fmt.printf("%vUnion%v\n", clr.DEBUG_GROUP, clr.RESET)
         for arg, i in e.args {
             if i > 0 {
                 fmt.println()
                 print_indent(indent+1)
-                fmt.println("\x1b[35m---------\x1b[0m")
+                fmt.printf("%v---------%v\n", clr.DEBUG_GROUP, clr.RESET)
             }
             print_expr(arg, color, indent+1)
         }
@@ -517,12 +537,12 @@ print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
         }
 
     case .Binary:
-        fmt.printf("\x1b[%sm(\x1b[0m", COLORS[color])
+        fmt.printf("%v(%v", paren_colors[color], clr.RESET)
         for arg, i in e.args {
             if i > 0 { fmt.printf(" %v ", e.op) }
             print_expr(arg, Paren_Color((int(color) + 1) % 6))
         }
-        fmt.printf("\x1b[%sm)\x1b[0m", COLORS[color])
+        fmt.printf("%v)%v", paren_colors[color], clr.RESET)
     case .Unary:
         assert( len(e.args) == 1 )
         fmt.print("-")
@@ -532,17 +552,17 @@ print_expr :: proc(e: Expr, color: Paren_Color = .White, indent: int = 0) {
 
 @private
 print_rel :: proc(rel: Relation) {
-    fmt.printf("\x1b[36m%v\x1b[0m/%v\x1b[30m(", rel.name, rel.arity)
+    fmt.printf("%v%v%v/%v%v(", clr.DEBUG_META, rel.name, clr.RESET, rel.arity, clr.LOCATION)
     for field, i in rel.fields {
-        if i > 0 { fmt.print("\x1b[30m, ") }
-        fmt.printf("\x1b[33m%v\x1b[30m:%v", field, rel.types[i])
+        if i > 0 { fmt.printf("%v, ", clr.LOCATION) }
+        fmt.printf("%v%v%v:%v", clr.DEBUG_OP, field, clr.LOCATION, rel.types[i])
     }
-    fmt.printf("\x1b[30m)\x1b[0m\n")
+    fmt.printf("%v)%v\n", clr.LOCATION, clr.RESET)
 }
 
 @private
 print_rule :: proc(rule: Rule) {
-    fmt.printf("\x1b[40m#%v                  \x1b[0m\n", rule.id)
+    fmt.printf("%v#%v                  %v\n", clr.RULE_ID, rule.id, clr.RESET)
     // for atom in rule.head {
     //     print_expr(atom)
     //     fmt.println()
@@ -553,7 +573,7 @@ print_rule :: proc(rule: Rule) {
         fmt.println()
     }
     for atom in rule.head {
-        fmt.print("\x1b[45m--> \x1b[0m")
+        fmt.printf("%v--> %v", clr.RULE_ARROW, clr.RESET)
         print_expr(atom)
         fmt.println()
     }

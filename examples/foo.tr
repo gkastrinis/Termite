@@ -28,6 +28,8 @@ def foo(x, y): ((x=1, y=2); (x=2, y=3))
 // foo = (x, y): {(1, 2), (2, 3)}
 // ancestor = (x, y): parent(x, y)
 
+def foo(x, y): , bar(x, y)
+
 def foo():
     bar(), x > 1 !=   2 * 10
 
