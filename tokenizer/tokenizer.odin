@@ -40,8 +40,6 @@ Tokenizer :: struct {
     snap_col: u32,
     curr_row: u32,
     curr_col: u32,
-    input_lines: [dynamic]string,
-    curr_line: [dynamic]rune,
 
     buffer: [dynamic]rune,
     in_error: bool,
@@ -101,25 +99,12 @@ next_token :: proc(tok: ^Tokenizer) -> Token {
     unreachable()
 }
 
-print_token :: proc(tok: ^Tokenizer, t: Token) {
-    line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
-    fmt.println(line)
+print_token :: proc(t: Token) {
     fmt.printf(
         "\x1b[33m%v \x1b[35m<%v>\x1b[30m %v:%v-%v:%v\x1b[0m",
         t.kind, t.val,
         t.range.start_row, t.range.start_col, t.range.stop_row, t.range.stop_col,
     )
-}
-
-input_line :: proc(tok: ^Tokenizer, i: int) -> string {
-    completed := len(tok.input_lines)
-    if i <= completed {
-        return tok.input_lines[i]
-    } else if i == completed + 1 {
-        line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
-        return line
-    }
-    panic("wrong line requested")
 }
 
 ///////////////////////////////////////////////////////////////
@@ -191,12 +176,6 @@ next_rune :: proc(tok: ^Tokenizer) -> (rune, io.Error) {
         tok.curr_col = 1
     } else {
         tok.curr_col += 1
-    }
-    append(&tok.curr_line, r)
-    if r == '\n' {
-        line, _ := utf8.runes_to_string(tok.curr_line[:], tok.allocator)
-        clear(&tok.curr_line)
-        append(&tok.input_lines, line)
     }
     return r, err
 }

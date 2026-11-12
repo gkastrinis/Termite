@@ -8,13 +8,20 @@ import parser "./parser"
 import tokenizer "./tokenizer"
 
 main :: proc() {
-    input := "def foo(): bar(), x > 1 < 2"
+    args := os.args
+    if len(args) == 1 {
+        fmt.printf("usage: %v <file>", args[0])
+        return
+    }
+    source := parser.file_source_init(args[1], context.allocator)
+    if source.failed { return }
 
-    reader := strings.Reader{s = input}
+    // input := "def foo(): bar(), x > 1 < 2"
+    // reader := strings.Reader{s = input}
     // stream := strings.reader_to_stream(&reader)
-    stream := os.to_stream(os.stdin)
+    // stream := os.to_stream(os.stdin)
 
-    p := parser.init(stream, context.allocator)
+    p := parser.init(source, context.allocator)
     parser.parse(&p)
     // parser.print_program(&p)
 

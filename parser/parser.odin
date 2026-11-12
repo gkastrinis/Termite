@@ -3,6 +3,7 @@ package parser
 import "core:fmt"
 import "core:io"
 import "core:mem"
+import "core:os"
 import "core:strings"
 
 import tokenizer "../tokenizer"
@@ -45,7 +46,16 @@ Rule :: struct {
     body: Expr,
 }
 
+Source :: struct {
+    name: string,
+    lines: []string,
+    stream: io.Stream,
+    failed: bool,
+    _reader: ^strings.Reader,
+}
+
 Parser :: struct {
+    source: Source,
     allocator: mem.Allocator,
 
     tok: tokenizer.Tokenizer,
@@ -59,10 +69,29 @@ Parser :: struct {
     next_id: u16,
 }
 
-init :: proc(stream: io.Stream, allocator: mem.Allocator) -> Parser {
+file_source_init :: proc(path: string, allocator: mem.Allocator) -> Source {
+    source_bytes, err := os.read_entire_file(path, allocator)
+    if err != nil {
+        fmt.eprintln("could not read file:", path, err)
+        return Source{name = path, failed = true}
+    }
+    source_text := string(source_bytes)
+    reader := new(strings.Reader, allocator)
+    strings.reader_init(reader, source_text)
+
+    return Source{
+        name = path,
+        lines = strings.split(source_text, "\n"),
+        stream = strings.reader_to_stream(reader),
+        _reader = reader,
+    }
+}
+
+init :: proc(source: Source, allocator: mem.Allocator) -> Parser {
     return Parser {
+        source = source,
         allocator = allocator,
-        tok = tokenizer.init(stream, allocator),
+        tok = tokenizer.init(source.stream, allocator),
         has_ahead = false,
         relations = make(map[string]Relation, allocator),
         rules = make([dynamic]Rule, 0, 4, allocator),
@@ -142,10 +171,7 @@ next_token :: proc(parser: ^Parser) -> Token {
         parser.has_ahead = false
         return parser.ahead
     }
-    t := tokenizer.next_token(&parser.tok)
-    // tokenizer.print_token(&parser.tok, t)
-    // fmt.println()
-    return t
+    return tokenizer.next_token(&parser.tok)
 }
 
 @private
@@ -372,20 +398,21 @@ parse_expr_inner :: proc(parser: ^Parser, min_prec: int, opt: Operand_Mode) -> E
 
 @private
 parse_error :: proc(parser: ^Parser, err: Expr, t: Token, msg: string) -> Expr {
-    fmt.printf("\n\x1b[41m  Parse Error  \x1b[0m\n%v\n", msg)
+    fmt.printf("\x1b[36m%v\x1b[30m(%v:%v)\x1b[0m \x1b[41m Parse Error \x1b[0m %v\n",
+        parser.source.name,
+        t.range.start_row,
+        t.range.start_col,
+        msg)
 
-    line := tokenizer.input_line(&parser.tok, int(err.args[0].a.range.start_row))
-    fmt.printf("\n%v\x1b[31m%v\x1b[0m\n",
-        line[0:t.range.start_col-1], t.val)
+    line := parser.source.lines[int(err.args[0].a.range.start_row)-1]
+    start, stop := t.range.start_col-1, t.range.stop_col-1
 
-    foo := true
-    for i in 0..< err.args[0].a.range.start_col-1 {
-        fmt.print(' ')
-    }
-    for i in err.args[0].a.range.start_col-1..<t.range.start_col-1 {
-        fmt.print('~')
-    }
-    fmt.println("^")
+    fmt.printf("%v\x1b[31m%v\x1b[0m%v\n", line[0:start], line[start:stop], line[stop:])
+
+    for i in 0..< err.args[0].a.range.start_col-1 { fmt.print(' ') }
+    for i in err.args[0].a.range.start_col-1..<start { fmt.print('~') }
+    for i in start..<stop { fmt.print('^') }
+    fmt.println()
 
     return err
 }
@@ -402,7 +429,7 @@ prec_climbing_parse :: proc(parser: ^Parser, lhs_: Expr, min_prec: int, opt: Ope
         }
         if non_assoc_found && is_non_assoc(ahead) {
             err := make_expr1(parser, .Error, "", lhs)
-            msg := "Chaining of comparison operators is not supported"
+            msg := "Unsupported comparison chaining"
             return parse_error(parser, err, ahead, msg)
         }
         if is_non_assoc(ahead) { non_assoc_found = true }
